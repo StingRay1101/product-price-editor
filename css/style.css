@@ -341,6 +341,75 @@ input::placeholder {
   margin-top: 10px;
 }
 
+.search-suggestions {
+  margin-top: 12px;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow: 0 18px 34px rgba(20, 15, 10, 0.08);
+}
+
+.suggestions-label {
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(0, 0, 0, 0.42);
+  background: rgba(249, 246, 241, 0.9);
+}
+
+.suggestion-item {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 12px 14px;
+  border-top: 1px solid rgba(0, 0, 0, 0.05);
+  text-align: left;
+  background: transparent;
+}
+
+.suggestion-item:first-of-type {
+  border-top: none;
+}
+
+.suggestion-item:hover,
+.suggestion-item.is-active {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.suggestion-main {
+  min-width: 0;
+}
+
+.suggestion-title {
+  display: block;
+  font-family: "Syne", sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.suggestion-meta {
+  display: block;
+  margin-top: 4px;
+  color: rgba(0, 0, 0, 0.42);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.suggestion-skus {
+  color: rgba(0, 0, 0, 0.5);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
 .results-panel {
   display: flex;
   flex-direction: column;

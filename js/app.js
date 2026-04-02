@@ -5,6 +5,8 @@ const state = {
   products: new Map(),
   lightspeedCache: new Map(),
   authenticated: false,
+  suggestedProducts: new Map(),
+  suggestionTimer: null,
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -29,6 +31,7 @@ const dom = {
   searchSection: $("#search-section"),
   searchInput: $("#search-input"),
   searchBtn: $("#search-btn"),
+  searchSuggestions: $("#search-suggestions"),
   productsContainer: $("#products-container"),
   toastContainer: $("#toast-container"),
   searchStatus: $("#search-status"),
@@ -79,11 +82,27 @@ function bindEvents() {
   dom.testConnectionBtn.addEventListener("click", testConnection);
   dom.logoutBtn.addEventListener("click", logout);
   dom.searchBtn.addEventListener("click", searchProducts);
+  dom.searchInput.addEventListener("input", onSearchInput);
+  dom.searchInput.addEventListener("focus", () => {
+    if (dom.searchInput.value.trim()) {
+      queueSuggestionLookup(dom.searchInput.value.trim());
+    }
+  });
   dom.searchInput.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") searchProducts();
+    if (event.key === "Enter") {
+      hideSuggestions();
+      searchProducts();
+    }
   });
 
   dom.productsContainer.addEventListener("click", onProductsClick);
+  dom.searchSuggestions.addEventListener("click", onSuggestionClick);
+
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest(".search-shell")) {
+      hideSuggestions();
+    }
+  });
 }
 
 function normalizeWorkerUrl(value) {
@@ -324,9 +343,11 @@ function logout() {
   localStorage.removeItem("portal_password");
   state.products.clear();
   state.lightspeedCache.clear();
+  state.suggestedProducts.clear();
   dom.productsContainer.innerHTML = "";
   dom.loginPassword.value = "";
   dom.settingsPanel.classList.add("hidden");
+  hideSuggestions();
   setSearchStatus("No products loaded");
   showLoginError("");
   applyLockoutState();
@@ -384,6 +405,7 @@ async function testConnection() {
 
 async function searchProducts() {
   const query = dom.searchInput.value.trim();
+  hideSuggestions();
   dom.productsContainer.innerHTML =
     '<div class="loading-panel"><div class="loading">Searching products...</div></div>';
   setSearchStatus(query ? `Searching for "${query}"` : "Searching all products");
@@ -392,21 +414,125 @@ async function searchProducts() {
     const products = await apiFetch(
       `/api/products?search=${encodeURIComponent(query)}`
     );
-    state.products.clear();
-    state.lightspeedCache.clear();
-    products.forEach((product) => state.products.set(String(product.id), product));
-    renderProducts(products);
-
-    setSearchStatus(
-      products.length
-        ? `${products.length} product${products.length !== 1 ? "s" : ""} loaded`
-        : "No products matched your search"
-    );
+    loadProducts(products);
+    setSearchStatus(products.length
+      ? `${products.length} product${products.length !== 1 ? "s" : ""} loaded`
+      : "No products matched your search");
   } catch (error) {
     dom.productsContainer.innerHTML =
       `<div class="error-panel"><div class="error-state">${esc(error.message)}</div></div>`;
     setSearchStatus("Search failed");
   }
+}
+
+function loadProducts(products) {
+  state.products.clear();
+  state.lightspeedCache.clear();
+  products.forEach((product) => state.products.set(String(product.id), product));
+  renderProducts(products);
+}
+
+function hideSuggestions() {
+  dom.searchSuggestions.classList.add("hidden");
+  dom.searchSuggestions.innerHTML = "";
+  state.suggestedProducts.clear();
+}
+
+function queueSuggestionLookup(query) {
+  clearTimeout(state.suggestionTimer);
+  state.suggestionTimer = setTimeout(() => {
+    loadSuggestions(query);
+  }, 180);
+}
+
+function onSearchInput() {
+  const query = dom.searchInput.value.trim();
+  if (!query) {
+    clearTimeout(state.suggestionTimer);
+    hideSuggestions();
+    return;
+  }
+
+  queueSuggestionLookup(query);
+}
+
+async function loadSuggestions(query) {
+  if (!state.authenticated || !query) {
+    hideSuggestions();
+    return;
+  }
+
+  try {
+    const products = await apiFetch(
+      `/api/products?search=${encodeURIComponent(query)}&limit=8`
+    );
+
+    if (dom.searchInput.value.trim() !== query) {
+      return;
+    }
+
+    renderSuggestions(products, query);
+  } catch (error) {
+    console.warn("Suggestion lookup failed:", error.message);
+    hideSuggestions();
+  }
+}
+
+function renderSuggestions(products, query) {
+  if (!query || !products.length) {
+    hideSuggestions();
+    return;
+  }
+
+  state.suggestedProducts.clear();
+  products.forEach((product) => {
+    state.suggestedProducts.set(String(product.id), product);
+  });
+
+  const items = products
+    .map((product) => {
+      const skus = Array.from(
+        new Set(
+          (product.variants || [])
+            .map((variant) => (variant.sku || "").trim())
+            .filter(Boolean)
+        )
+      ).slice(0, 3);
+
+      const skuLabel = skus.length ? skus.join(" • ") : "No SKU";
+
+      return `
+        <button
+          class="suggestion-item"
+          type="button"
+          data-product-id="${esc(String(product.id))}"
+        >
+          <span class="suggestion-main">
+            <span class="suggestion-title">${esc(product.title)}</span>
+            <span class="suggestion-meta">${product.variants.length} variant${product.variants.length !== 1 ? "s" : ""} • ${esc(product.handle || "No handle")}</span>
+          </span>
+          <span class="suggestion-skus">${esc(skuLabel)}</span>
+        </button>`;
+    })
+    .join("");
+
+  dom.searchSuggestions.innerHTML = `
+    <div class="suggestions-label">Suggested Matches</div>
+    ${items}`;
+  dom.searchSuggestions.classList.remove("hidden");
+}
+
+function onSuggestionClick(event) {
+  const button = event.target.closest(".suggestion-item");
+  if (!button) return;
+
+  const product = state.suggestedProducts.get(button.dataset.productId);
+  if (!product) return;
+
+  dom.searchInput.value = product.title;
+  hideSuggestions();
+  loadProducts([product]);
+  setSearchStatus("1 suggested product loaded");
 }
 
 function renderProducts(products) {

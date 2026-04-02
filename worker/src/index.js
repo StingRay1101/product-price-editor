@@ -41,6 +41,7 @@ function isAuthorizedRequest(request, env) {
 
 // Cache token in module scope (persists within same isolate)
 let shopifyTokenCache = { token: null, expiresAt: 0 };
+let shopifyProductCache = { products: null, expiresAt: 0, inFlight: null };
 
 async function getShopifyToken(env) {
   // Return cached token if still valid (with 5-min buffer)
@@ -70,9 +71,11 @@ async function getShopifyToken(env) {
   return data.access_token;
 }
 
-async function shopify(env, method, endpoint, body) {
+async function shopifyRaw(env, method, endpointOrUrl, body) {
   const token = await getShopifyToken(env);
-  const url = `https://${env.SHOPIFY_STORE}/admin/api/2024-10/${endpoint}`;
+  const url = endpointOrUrl.startsWith("http")
+    ? endpointOrUrl
+    : `https://${env.SHOPIFY_STORE}/admin/api/2024-10/${endpointOrUrl}`;
   const res = await fetch(url, {
     method,
     headers: {
@@ -85,6 +88,11 @@ async function shopify(env, method, endpoint, body) {
     const text = await res.text();
     throw new Error(`Shopify ${res.status}: ${text}`);
   }
+  return res;
+}
+
+async function shopify(env, method, endpoint, body) {
+  const res = await shopifyRaw(env, method, endpoint, body);
   return res.json();
 }
 
@@ -137,6 +145,164 @@ async function updateLightspeedProductPrice(env, productId, price) {
   return res.json();
 }
 
+function normalizeSearchValue(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function compactSearchValue(value) {
+  return normalizeSearchValue(value).replace(/\s+/g, "");
+}
+
+function getNextPageUrl(linkHeader) {
+  if (!linkHeader) return null;
+  const match = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
+  return match ? match[1] : null;
+}
+
+async function fetchAllShopifyProducts(env) {
+  const products = [];
+  let nextUrl =
+    `https://${env.SHOPIFY_STORE}/admin/api/2024-10/products.json` +
+    `?limit=250&fields=id,title,handle,variants,images,status`;
+
+  while (nextUrl) {
+    const res = await shopifyRaw(env, "GET", nextUrl);
+    const data = await res.json();
+    products.push(...(data.products || []));
+    nextUrl = getNextPageUrl(res.headers.get("Link"));
+  }
+
+  return products;
+}
+
+async function getShopifyProductsForSearch(env) {
+  if (
+    Array.isArray(shopifyProductCache.products) &&
+    Date.now() < shopifyProductCache.expiresAt
+  ) {
+    return shopifyProductCache.products;
+  }
+
+  if (shopifyProductCache.inFlight) {
+    return shopifyProductCache.inFlight;
+  }
+
+  shopifyProductCache.inFlight = (async () => {
+    try {
+      const products = await fetchAllShopifyProducts(env);
+      shopifyProductCache.products = products;
+      shopifyProductCache.expiresAt = Date.now() + 5 * 60 * 1000;
+      return products;
+    } catch (err) {
+      if (Array.isArray(shopifyProductCache.products)) {
+        return shopifyProductCache.products;
+      }
+      throw err;
+    } finally {
+      shopifyProductCache.inFlight = null;
+    }
+  })();
+
+  return shopifyProductCache.inFlight;
+}
+
+function scoreProductMatch(product, normalizedQuery, compactQuery, tokens) {
+  const title = normalizeSearchValue(product.title);
+  const handle = normalizeSearchValue(product.handle);
+  const variantTitles = (product.variants || []).map((variant) =>
+    normalizeSearchValue(variant.title)
+  );
+  const skus = (product.variants || []).map((variant) =>
+    normalizeSearchValue(variant.sku)
+  );
+  const compactSkus = skus.map((sku) => sku.replace(/\s+/g, ""));
+
+  let score = 0;
+
+  if (title === normalizedQuery) score += 500;
+  if (title.startsWith(normalizedQuery)) score += 260;
+  if (title.includes(normalizedQuery)) score += 180;
+
+  if (handle.startsWith(normalizedQuery)) score += 140;
+  if (handle.includes(normalizedQuery)) score += 100;
+
+  if (compactQuery) {
+    if (compactSkus.some((sku) => sku === compactQuery)) score += 340;
+    if (compactSkus.some((sku) => sku.startsWith(compactQuery))) score += 280;
+    if (compactSkus.some((sku) => sku.includes(compactQuery))) score += 220;
+  }
+
+  if (variantTitles.some((variantTitle) => variantTitle.includes(normalizedQuery))) {
+    score += 120;
+  }
+
+  score += tokens.reduce((total, token) => {
+    let tokenScore = 0;
+    if (title.includes(token)) tokenScore += 24;
+    if (handle.includes(token)) tokenScore += 16;
+    if (variantTitles.some((variantTitle) => variantTitle.includes(token))) tokenScore += 12;
+    if (compactSkus.some((sku) => sku.includes(token))) tokenScore += 22;
+    return total + tokenScore;
+  }, 0);
+
+  return score;
+}
+
+function searchProductsByQuery(products, query) {
+  const normalizedQuery = normalizeSearchValue(query);
+  if (!normalizedQuery) return [];
+
+  const compactQuery = compactSearchValue(query);
+  const tokens = normalizedQuery.split(/\s+/).filter(Boolean);
+
+  return products
+    .map((product) => {
+      const title = normalizeSearchValue(product.title);
+      const handle = normalizeSearchValue(product.handle);
+      const variantTitles = (product.variants || []).map((variant) =>
+        normalizeSearchValue(variant.title)
+      );
+      const skus = (product.variants || []).map((variant) =>
+        compactSearchValue(variant.sku)
+      );
+
+      const matchesByPhrase =
+        title.includes(normalizedQuery) ||
+        handle.includes(normalizedQuery) ||
+        variantTitles.some((variantTitle) => variantTitle.includes(normalizedQuery)) ||
+        (compactQuery && skus.some((sku) => sku.includes(compactQuery)));
+
+      const matchesByTokens =
+        tokens.length > 0 &&
+        tokens.every((token) =>
+          title.includes(token) ||
+          handle.includes(token) ||
+          variantTitles.some((variantTitle) => variantTitle.includes(token)) ||
+          skus.some((sku) => sku.includes(token))
+        );
+
+      if (!matchesByPhrase && !matchesByTokens) {
+        return null;
+      }
+
+      return {
+        product,
+        score: scoreProductMatch(product, normalizedQuery, compactQuery, tokens),
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return String(a.product.title || "").localeCompare(String(b.product.title || ""));
+    })
+    .map((entry) => entry.product);
+}
+
 // ─── Handlers ────────────────────────────────────────────────
 
 async function handleSearch(url, env) {
@@ -146,13 +312,15 @@ async function handleSearch(url, env) {
     250
   );
 
-  let endpoint = `products.json?limit=${limit}&fields=id,title,handle,variants,images,status`;
-  if (search) {
-    endpoint += `&title=${encodeURIComponent(search)}`;
+  if (!search.trim()) {
+    const endpoint = `products.json?limit=${limit}&fields=id,title,handle,variants,images,status`;
+    const data = await shopify(env, "GET", endpoint);
+    return json(data.products);
   }
 
-  const data = await shopify(env, "GET", endpoint);
-  return json(data.products);
+  const products = await getShopifyProductsForSearch(env);
+  const matches = searchProductsByQuery(products, search).slice(0, limit);
+  return json(matches);
 }
 
 async function handleLightspeedLookup(url, env) {
