@@ -184,11 +184,11 @@ async function toggleProduct(productId) {
   const product = state.products.get(String(productId));
   if (!product) return;
 
-  // Fetch Lightspeed match by handle
+  // Fetch Lightspeed match by handle + title
   let lsProduct = null;
   try {
     const data = await apiFetch(
-      `/api/lightspeed-product?handle=${encodeURIComponent(product.handle)}`
+      `/api/lightspeed-product?handle=${encodeURIComponent(product.handle)}&title=${encodeURIComponent(product.title)}`
     );
     if (data.found) {
       lsProduct = data.product;
