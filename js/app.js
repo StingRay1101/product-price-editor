@@ -200,20 +200,38 @@ async function parseApiResponse(response) {
   }
 }
 
+function buildAuthHeaders(secret, extraHeaders = {}) {
+  const headers = { ...extraHeaders };
+
+  if (secret) {
+    headers["X-Portal-Password"] = secret;
+    headers.Authorization = `Bearer ${secret}`;
+  }
+
+  return headers;
+}
+
 async function pingWorker(password) {
   const { workerUrl } = getConfig();
   if (!workerUrl) {
     throw new Error("Add the Worker URL in connection settings first.");
   }
 
-  const response = await fetch(`${workerUrl}/api/ping`, {
-    method: "GET",
-    headers: {
-      "X-Portal-Password": password,
-    },
-  });
+  const tryRequest = async (path) => {
+    const response = await fetch(`${workerUrl}${path}`, {
+      method: "GET",
+      headers: buildAuthHeaders(password),
+    });
+    const data = await parseApiResponse(response);
+    return { response, data };
+  };
 
-  const data = await parseApiResponse(response);
+  let { response, data } = await tryRequest("/api/ping");
+
+  if (response.status === 404 || response.status === 405) {
+    ({ response, data } = await tryRequest("/api/products?limit=1"));
+  }
+
   if (response.status === 401) {
     throw new Error("Incorrect portal password.");
   }
@@ -326,11 +344,10 @@ async function apiFetch(endpoint, options = {}) {
 
   const response = await fetch(`${workerUrl}${endpoint}`, {
     ...options,
-    headers: {
+    headers: buildAuthHeaders(portalPassword, {
       "Content-Type": "application/json",
-      "X-Portal-Password": portalPassword,
       ...(options.headers || {}),
-    },
+    }),
   });
 
   const data = await parseApiResponse(response);
