@@ -99,62 +99,44 @@ async function handleSearch(url, env) {
 }
 
 async function handleLightspeedLookup(url, env) {
-  const handle = url.searchParams.get("handle");
+  const shopifyProductId = url.searchParams.get("shopifyProductId");
   const title = url.searchParams.get("title");
-  if (!handle && !title) return json({ error: "handle or title parameter required" }, 400);
+  if (!shopifyProductId) return json({ error: "shopifyProductId parameter required" }, 400);
 
   try {
-    // 1. Try direct handle filter
-    if (handle) {
-      const data = await lightspeed(
-        env,
-        "GET",
-        `products?handle=${encodeURIComponent(handle)}&page_size=10`
-      );
-      const products = data.data || data.products || [];
-      const match = products.find((p) => p.handle === handle);
-      if (match) return json({ found: true, product: match });
-    }
-
-    // 2. Fallback: search by product name
-    const searchTerm = title || handle;
+    // Search Lightspeed using the product title
+    const searchTerm = title || shopifyProductId;
     const search = await lightspeed(
       env,
       "GET",
-      `search?type=products&q=${encodeURIComponent(searchTerm)}&page_size=20`
+      `search?type=products&q=${encodeURIComponent(searchTerm)}&page_size=50`
     );
     const searchResults = search.data || [];
 
-    // Try exact name match first, then partial
-    const exactMatch = searchResults.find(
-      (p) => p.name?.toLowerCase() === title?.toLowerCase()
+    // Match by Shopify source_id — this is the reliable link
+    const matches = searchResults.filter(
+      (p) => p.source_id === String(shopifyProductId)
     );
-    if (exactMatch) return json({ found: true, product: exactMatch });
 
-    // Try matching by handle
-    if (handle) {
-      const handleMatch = searchResults.find((p) => p.handle === handle);
-      if (handleMatch) return json({ found: true, product: handleMatch });
+    if (matches.length > 0) {
+      return json({ found: true, products: matches });
     }
 
-    // Return first result if the search term is specific enough
-    if (searchResults.length === 1) {
-      return json({ found: true, product: searchResults[0] });
+    // If title search didn't find it, try fetching by source_id directly
+    const directSearch = await lightspeed(
+      env,
+      "GET",
+      `products?source_id=${encodeURIComponent(shopifyProductId)}&page_size=50`
+    );
+    const directResults = directSearch.data || [];
+
+    if (directResults.length > 0) {
+      return json({ found: true, products: directResults });
     }
 
-    // Return all candidates so the user can see what's available
-    return json({
-      found: false,
-      product: null,
-      candidates: searchResults.slice(0, 5).map((p) => ({
-        id: p.id,
-        name: p.name,
-        handle: p.handle,
-        sku: p.sku,
-      })),
-    });
+    return json({ found: false, products: [] });
   } catch (err) {
-    return json({ found: false, product: null, error: err.message });
+    return json({ found: false, products: [], error: err.message });
   }
 }
 
@@ -186,16 +168,19 @@ async function handleUpdatePrice(request, env) {
   // 2. Update Lightspeed product price
   let lsId = lightspeedProductId;
 
-  // Look up by handle if no ID was provided
-  if (!lsId && handle) {
+  // Look up by Shopify variant ID if no Lightspeed ID provided
+  if (!lsId && shopifyVariantId) {
     try {
-      const data = await lightspeed(
+      // Search by product title to find Lightspeed products linked to this Shopify product
+      const searchData = await lightspeed(
         env,
         "GET",
-        `products?handle=${encodeURIComponent(handle)}&page_size=5`
+        `search?type=products&q=${encodeURIComponent(handle || shopifyVariantId)}&page_size=50`
       );
-      const products = data.data || data.products || [];
-      const match = products.find((p) => p.handle === handle);
+      const products = searchData.data || [];
+      const match = products.find(
+        (p) => p.source_variant_id === String(shopifyVariantId)
+      );
       if (match) lsId = match.id;
     } catch (err) {
       errors.push({ platform: "Lightspeed", error: `Lookup failed: ${err.message}` });
@@ -215,11 +200,54 @@ async function handleUpdatePrice(request, env) {
   } else if (!errors.some((e) => e.platform === "Lightspeed")) {
     errors.push({
       platform: "Lightspeed",
-      error: `No product found for handle: ${handle}`,
+      error: "No matching Lightspeed product found for this variant",
     });
   }
 
   return json({ results, errors });
+}
+
+// ─── Debug ──────────────────────────────────────────────────
+
+async function handleDebugLightspeed(url, env) {
+  const results = {};
+
+  // 1. Test basic connection - fetch first page of products
+  try {
+    const base = env.LIGHTSPEED_URL.replace(/\/+$/, "");
+    const res = await fetch(`${base}/api/2.0/products?page_size=1`, {
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${env.LIGHTSPEED_TOKEN}`,
+      },
+    });
+    results.status = res.status;
+    results.raw = await res.json();
+  } catch (err) {
+    results.connectionError = err.message;
+  }
+
+  // 2. Test search endpoint
+  const searchTerm = url.searchParams.get("q") || "Sapphira";
+  try {
+    const base = env.LIGHTSPEED_URL.replace(/\/+$/, "");
+    const res = await fetch(
+      `${base}/api/2.0/search?type=products&q=${encodeURIComponent(searchTerm)}&page_size=5`,
+      {
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${env.LIGHTSPEED_TOKEN}`,
+        },
+      }
+    );
+    results.searchStatus = res.status;
+    results.searchRaw = await res.json();
+  } catch (err) {
+    results.searchError = err.message;
+  }
+
+  results.configuredUrl = env.LIGHTSPEED_URL;
+  return json(results);
 }
 
 // ─── Router ──────────────────────────────────────────────────
@@ -256,6 +284,9 @@ export default {
       }
       if (url.pathname === "/api/update-price" && request.method === "POST") {
         return await handleUpdatePrice(request, env);
+      }
+      if (url.pathname === "/api/debug-lightspeed" && request.method === "GET") {
+        return await handleDebugLightspeed(url, env);
       }
       return json({ error: "Not found" }, 404);
     } catch (err) {

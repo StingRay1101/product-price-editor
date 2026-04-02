@@ -184,39 +184,44 @@ async function toggleProduct(productId) {
   const product = state.products.get(String(productId));
   if (!product) return;
 
-  // Fetch Lightspeed match by handle + title
-  let lsProduct = null;
+  // Fetch Lightspeed matches by Shopify product ID
+  let lsProducts = [];
   try {
     const data = await apiFetch(
-      `/api/lightspeed-product?handle=${encodeURIComponent(product.handle)}&title=${encodeURIComponent(product.title)}`
+      `/api/lightspeed-product?shopifyProductId=${product.id}&title=${encodeURIComponent(product.title)}`
     );
     if (data.found) {
-      lsProduct = data.product;
-      state.lightspeedCache.set(product.handle, lsProduct);
+      lsProducts = data.products || [];
     }
   } catch (err) {
     console.warn("Lightspeed lookup failed:", err.message);
   }
 
-  renderVariants(product, lsProduct, variantsDiv);
+  renderVariants(product, lsProducts, variantsDiv);
   variantsDiv.dataset.loaded = "true";
 }
 
 // ─── Render Variants ─────────────────────────────────────────
-function renderVariants(product, lsProduct, container) {
-  const lsBadge = lsProduct
-    ? `<span class="ls-badge found">Lightspeed linked</span>`
-    : `<span class="ls-badge not-found">Lightspeed: no match for "${esc(product.handle)}"</span>`;
-
-  const lsPrice = lsProduct
-    ? lsProduct.price_including_tax ?? lsProduct.price ?? null
-    : null;
+function renderVariants(product, lsProducts, container) {
+  const matchCount = lsProducts.length;
+  const lsBadge = matchCount > 0
+    ? `<span class="ls-badge found">Lightspeed linked (${matchCount} variant${matchCount !== 1 ? "s" : ""})</span>`
+    : `<span class="ls-badge not-found">Lightspeed: no match found</span>`;
 
   const rows = product.variants
     .map((v) => {
       const variantLabel =
         v.title === "Default Title" ? "\u2014" : esc(v.title);
-      const lsId = lsProduct ? lsProduct.id : "";
+
+      // Find matching Lightspeed product by source_variant_id
+      const lsMatch = lsProducts.find(
+        (lp) => String(lp.source_variant_id) === String(v.id)
+      );
+      const lsPrice = lsMatch
+        ? lsMatch.price_including_tax ?? lsMatch.price ?? null
+        : null;
+      const lsId = lsMatch ? lsMatch.id : "";
+      const lsName = lsMatch ? lsMatch.variant_name || lsMatch.name : "";
 
       return `
       <tr data-variant-id="${esc(String(v.id))}">
@@ -230,7 +235,7 @@ function renderVariants(product, lsProduct, container) {
         <td>
           <button class="btn-save"
             data-variant-id="${esc(String(v.id))}"
-            data-handle="${esc(product.handle)}"
+            data-handle="${esc(product.title)}"
             data-ls-id="${esc(lsId)}">Save</button>
         </td>
         <td class="status-cell"></td>
