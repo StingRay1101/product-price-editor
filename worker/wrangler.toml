@@ -1,0 +1,21 @@
+name = "price-editor-worker"
+main = "src/index.js"
+compatibility_date = "2024-10-01"
+
+# All sensitive values are stored as secrets.
+# Set them with:
+#   npx wrangler secret put SHOPIFY_STORE
+#   npx wrangler secret put SHOPIFY_CLIENT_ID
+#   npx wrangler secret put SHOPIFY_CLIENT_SECRET
+#   npx wrangler secret put LIGHTSPEED_URL
+#   npx wrangler secret put LIGHTSPEED_TOKEN
+#   npx wrangler secret put API_KEY
+#   npx wrangler secret put PORTAL_PASSWORD
+#
+# SHOPIFY_STORE         -> your-store.myshopify.com
+# SHOPIFY_CLIENT_ID     -> Shopify custom app client id
+# SHOPIFY_CLIENT_SECRET -> Shopify custom app client secret
+# LIGHTSPEED_URL        -> https://yourstore.vendhq.com
+# LIGHTSPEED_TOKEN      -> personal access token from Lightspeed X-Series
+# API_KEY               -> existing bearer secret for direct API clients
+# PORTAL_PASSWORD       -> password used by the protected frontend login screen

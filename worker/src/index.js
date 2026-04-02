@@ -3,7 +3,7 @@
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, PUT, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Portal-Password",
 };
 
 function json(data, status = 200) {
@@ -11,6 +11,32 @@ function json(data, status = 200) {
     status,
     headers: { "Content-Type": "application/json", ...CORS },
   });
+}
+
+function isAuthorizedRequest(request, env) {
+  const bearerToken = (request.headers.get("Authorization") || "").replace(
+    "Bearer ",
+    ""
+  );
+  const portalPassword = request.headers.get("X-Portal-Password") || "";
+  const apiKey = env.API_KEY || "";
+  const configuredPortalPassword = env.PORTAL_PASSWORD || "";
+
+  if (apiKey && bearerToken === apiKey) {
+    return true;
+  }
+
+  if (configuredPortalPassword && portalPassword === configuredPortalPassword) {
+    return true;
+  }
+
+  // Backward-compatible fallback so existing API_KEY setups can become the page password
+  // before a dedicated PORTAL_PASSWORD secret is added.
+  if (!configuredPortalPassword && apiKey && portalPassword === apiKey) {
+    return true;
+  }
+
+  return false;
 }
 
 // Cache token in module scope (persists within same isolate)
@@ -80,6 +106,37 @@ async function lightspeed(env, method, endpoint, body) {
   return res.json();
 }
 
+async function updateLightspeedProductPrice(env, productId, price) {
+  const numericPrice = Number(price);
+  if (!Number.isFinite(numericPrice) || numericPrice < 0) {
+    throw new Error(`Invalid Lightspeed price: ${price}`);
+  }
+
+  const base = env.LIGHTSPEED_URL.replace(/\/+$/, "");
+  const res = await fetch(
+    `${base}/api/2.1/products/${encodeURIComponent(productId)}`,
+    {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${env.LIGHTSPEED_TOKEN}`,
+      },
+      body: JSON.stringify({
+        details: {
+          price_including_tax: numericPrice,
+        },
+      }),
+    }
+  );
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Lightspeed ${res.status}: ${text}`);
+  }
+
+  return res.json();
+}
+
 // ─── Handlers ────────────────────────────────────────────────
 
 async function handleSearch(url, env) {
@@ -144,8 +201,16 @@ async function handleUpdatePrice(request, env) {
   const body = await request.json();
   const { shopifyVariantId, handle, price, compareAtPrice, lightspeedProductId } = body;
 
-  if (!shopifyVariantId || !price) {
-    return json({ error: "shopifyVariantId and price are required" }, 400);
+  const numericPrice = Number(price);
+  if (
+    !shopifyVariantId ||
+    price === undefined ||
+    price === null ||
+    String(price).trim() === "" ||
+    !Number.isFinite(numericPrice) ||
+    numericPrice < 0
+  ) {
+    return json({ error: "shopifyVariantId and a valid price are required" }, 400);
   }
 
   const results = { shopify: null, lightspeed: null };
@@ -189,11 +254,8 @@ async function handleUpdatePrice(request, env) {
 
   if (lsId) {
     try {
-      const data = await lightspeed(env, "PUT", `products/${lsId}`, {
-        id: lsId,
-        retail_price: parseFloat(price),
-      });
-      results.lightspeed = { success: true, product: data.data || data };
+      const data = await updateLightspeedProductPrice(env, lsId, numericPrice);
+      results.lightspeed = { success: true, product: data.data || data.product || data };
     } catch (err) {
       errors.push({ platform: "Lightspeed", error: err.message });
     }
@@ -211,42 +273,47 @@ async function handleUpdatePrice(request, env) {
 
 async function handleDebugLightspeed(url, env) {
   const results = {};
+  const base = env.LIGHTSPEED_URL.replace(/\/+$/, "");
+  const testId = url.searchParams.get("id") || "a1943af6-df6c-442a-ae68-b47a762d4cd2";
+  const headers = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${env.LIGHTSPEED_TOKEN}`,
+  };
+  const body = JSON.stringify({ id: testId, retail_price: 129.95 });
 
-  // 1. Test basic connection - fetch first page of products
-  try {
-    const base = env.LIGHTSPEED_URL.replace(/\/+$/, "");
-    const res = await fetch(`${base}/api/2.0/products?page_size=1`, {
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${env.LIGHTSPEED_TOKEN}`,
-      },
-    });
-    results.status = res.status;
-    results.raw = await res.json();
-  } catch (err) {
-    results.connectionError = err.message;
+  // Try every possible method/path combination
+  const attempts = [
+    { label: "PUT /api/2.0/products/{id}", method: "PUT", path: `/api/2.0/products/${testId}` },
+    { label: "POST /api/2.0/products/{id}", method: "POST", path: `/api/2.0/products/${testId}` },
+    { label: "PATCH /api/2.0/products/{id}", method: "PATCH", path: `/api/2.0/products/${testId}` },
+    { label: "POST /api/2.0/products", method: "POST", path: `/api/2.0/products` },
+    { label: "PUT /api/products", method: "PUT", path: `/api/products` },
+    { label: "POST /api/products", method: "POST", path: `/api/products` },
+    { label: "POST /api/1.0/products", method: "POST", path: `/api/1.0/products` },
+  ];
+
+  results.attempts = [];
+  for (const attempt of attempts) {
+    try {
+      const res = await fetch(`${base}${attempt.path}`, {
+        method: attempt.method,
+        headers,
+        body,
+      });
+      const responseBody = await res.text();
+      results.attempts.push({
+        label: attempt.label,
+        status: res.status,
+        response: responseBody.substring(0, 200),
+      });
+    } catch (err) {
+      results.attempts.push({
+        label: attempt.label,
+        error: err.message,
+      });
+    }
   }
 
-  // 2. Test search endpoint
-  const searchTerm = url.searchParams.get("q") || "Sapphira";
-  try {
-    const base = env.LIGHTSPEED_URL.replace(/\/+$/, "");
-    const res = await fetch(
-      `${base}/api/2.0/search?type=products&q=${encodeURIComponent(searchTerm)}&page_size=5`,
-      {
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${env.LIGHTSPEED_TOKEN}`,
-        },
-      }
-    );
-    results.searchStatus = res.status;
-    results.searchRaw = await res.json();
-  } catch (err) {
-    results.searchError = err.message;
-  }
-
-  results.configuredUrl = env.LIGHTSPEED_URL;
   return json(results);
 }
 
@@ -267,15 +334,14 @@ export default {
     }
 
     // Authenticate
-    const token = (request.headers.get("Authorization") || "").replace(
-      "Bearer ",
-      ""
-    );
-    if (token !== env.API_KEY) {
+    if (!isAuthorizedRequest(request, env)) {
       return json({ error: "Unauthorized" }, 401);
     }
 
     try {
+      if (url.pathname === "/api/ping" && request.method === "GET") {
+        return json({ ok: true });
+      }
       if (url.pathname === "/api/products" && request.method === "GET") {
         return await handleSearch(url, env);
       }

@@ -3,43 +3,137 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Product Price Editor</title>
+  <title>Imagine Fashion | Product Price Editor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Cormorant+Garamond:wght@500;600;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-  <header>
-    <h1>Product Price Editor</h1>
-    <button id="settings-btn">Settings</button>
-  </header>
-
-  <div id="settings-panel" class="hidden">
-    <div class="settings-content">
-      <h2>Connection Settings</h2>
-      <label for="worker-url">Worker URL</label>
-      <input type="url" id="worker-url" placeholder="https://price-editor.your-name.workers.dev">
-      <label for="api-key">API Key</label>
-      <input type="password" id="api-key" placeholder="Your API key">
-      <div class="settings-actions">
-        <button id="save-settings">Save</button>
-        <button id="test-connection" class="btn-secondary">Test Connection</button>
+  <div class="login-screen" id="login-screen">
+    <div class="login-box">
+      <div class="login-brand">
+        <span class="login-kicker">Imagine Fashion</span>
+        <h2>Product Price Editor</h2>
+        <p>Enter your portal password to continue.</p>
       </div>
+
+      <div class="login-fields">
+        <input
+          type="password"
+          id="login-password"
+          placeholder="Password"
+          autocomplete="current-password"
+        >
+        <button id="login-btn" type="button">Enter</button>
+      </div>
+
+      <button id="login-settings-toggle" class="login-link" type="button">
+        Connection settings
+      </button>
+
+      <div id="login-settings-panel" class="login-settings hidden">
+        <label for="login-worker-url">Worker URL</label>
+        <input
+          type="url"
+          id="login-worker-url"
+          placeholder="https://price-editor.your-name.workers.dev"
+        >
+        <button id="save-login-settings" type="button">Save Connection</button>
+      </div>
+
+      <div class="login-error" id="login-error"></div>
     </div>
   </div>
 
-  <main>
-    <div id="setup-notice" class="notice">
-      <p>Configure your Worker URL and API Key in <strong>Settings</strong> to get started.</p>
-    </div>
-
-    <div id="search-section" class="hidden">
-      <div class="search-bar">
-        <input type="text" id="search-input" placeholder="Search products by title...">
-        <button id="search-btn">Search</button>
+  <div id="app-shell" class="app-shell hidden">
+    <header class="page-header">
+      <div class="header-left">
+        <p class="header-kicker">Imagine Fashion</p>
+        <h1>Product Price Editor</h1>
+        <p class="header-subtitle">
+          Search Shopify products, compare Shopify and Lightspeed prices side by side,
+          and update the exact variant in view.
+        </p>
       </div>
-    </div>
 
-    <div id="products-container"></div>
-  </main>
+      <div class="header-right">
+        <p>Lightspeed + Shopify</p>
+        <p>Live Variant Price Updates</p>
+        <div class="header-actions">
+          <button id="settings-btn" class="header-btn" type="button">Connection</button>
+          <button id="logout-btn" class="logout-btn" type="button">Log Out</button>
+        </div>
+      </div>
+    </header>
+
+    <main class="container">
+      <section id="settings-panel" class="settings-panel hidden">
+        <div class="settings-copy">
+          <span class="panel-label">Connection</span>
+          <h2>Worker Settings</h2>
+          <p>
+            This page now signs in with a portal password. The Worker URL stays here so
+            the tool knows which protected backend to call.
+          </p>
+        </div>
+
+        <div class="settings-fields">
+          <label for="worker-url">Worker URL</label>
+          <input
+            type="url"
+            id="worker-url"
+            placeholder="https://price-editor.your-name.workers.dev"
+          >
+          <div class="settings-actions">
+            <button id="save-settings" type="button">Save Connection</button>
+            <button id="test-connection" class="btn-secondary" type="button">Test Connection</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="hero-panel">
+        <div class="hero-copy">
+          <span class="panel-label">Working View</span>
+          <h2>Clear, Variant-Level Editing</h2>
+          <p>
+            Every expanded product shows the Shopify price, compare-at price, matched
+            Lightspeed price, and the new values you are about to save.
+          </p>
+        </div>
+
+        <div class="hero-meta">
+          <div class="meta-card">
+            <span class="meta-label">Session</span>
+            <strong id="connection-status">Waiting for sign-in</strong>
+          </div>
+          <div class="meta-card">
+            <span class="meta-label">Search State</span>
+            <strong id="search-status">No products loaded</strong>
+          </div>
+        </div>
+      </section>
+
+      <div id="setup-notice" class="notice hidden">
+        <p>Add the Worker URL in <strong>Connection settings</strong> before signing in.</p>
+      </div>
+
+      <section id="search-section" class="search-section hidden">
+        <div class="search-shell">
+          <label for="search-input">Find Product</label>
+          <div class="search-bar">
+            <input type="text" id="search-input" placeholder="Search products by title...">
+            <button id="search-btn" type="button">Search</button>
+          </div>
+          <p class="search-note">
+            Expand a product to inspect each variant before saving price changes.
+          </p>
+        </div>
+      </section>
+
+      <section id="products-container" class="results-panel"></section>
+    </main>
+  </div>
 
   <div id="toast-container"></div>
 
