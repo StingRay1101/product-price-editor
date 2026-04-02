@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Product Price Editor</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header>
+    <h1>Product Price Editor</h1>
+    <button id="settings-btn">Settings</button>
+  </header>
+
+  <div id="settings-panel" class="hidden">
+    <div class="settings-content">
+      <h2>Connection Settings</h2>
+      <label for="worker-url">Worker URL</label>
+      <input type="url" id="worker-url" placeholder="https://price-editor.your-name.workers.dev">
+      <label for="api-key">API Key</label>
+      <input type="password" id="api-key" placeholder="Your API key">
+      <div class="settings-actions">
+        <button id="save-settings">Save</button>
+        <button id="test-connection" class="btn-secondary">Test Connection</button>
+      </div>
+    </div>
+  </div>
+
+  <main>
+    <div id="setup-notice" class="notice">
+      <p>Configure your Worker URL and API Key in <strong>Settings</strong> to get started.</p>
+    </div>
+
+    <div id="search-section" class="hidden">
+      <div class="search-bar">
+        <input type="text" id="search-input" placeholder="Search products by title...">
+        <button id="search-btn">Search</button>
+      </div>
+    </div>
+
+    <div id="products-container"></div>
+  </main>
+
+  <div id="toast-container"></div>
+
+  <script src="js/app.js"></script>
+</body>
+</html>
