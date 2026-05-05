@@ -595,6 +595,18 @@ function onProductsClick(event) {
     return;
   }
 
+  const copyAllBtn = event.target.closest(".btn-copy-all");
+  if (copyAllBtn) {
+    copyFirstToAll(copyAllBtn);
+    return;
+  }
+
+  const saveAllBtn = event.target.closest(".btn-save-all");
+  if (saveAllBtn) {
+    saveAllVariants(saveAllBtn);
+    return;
+  }
+
   const saveButton = event.target.closest(".btn-save");
   if (saveButton) {
     saveVariant(saveButton);
@@ -699,6 +711,8 @@ function renderVariants(product, lightspeedProducts, container) {
     })
     .join("");
 
+  const showBulk = product.variants.length > 1;
+
   container.innerHTML = `
     <div class="comparison-summary">
       <div class="comparison-copy">
@@ -707,6 +721,10 @@ function renderVariants(product, lightspeedProducts, container) {
       </div>
       ${lightspeedBadge}
     </div>
+    ${showBulk ? `<div class="bulk-actions">
+      <button class="btn-copy-all btn-secondary" type="button" data-product-id="${esc(String(product.id))}">Copy First to All</button>
+      <button class="btn-save-all" type="button" data-product-id="${esc(String(product.id))}">Save All Variants</button>
+    </div>` : ""}
     <div class="table-wrap">
       <table class="variants-table">
         <thead>
@@ -730,6 +748,54 @@ function renderVariants(product, lightspeedProducts, container) {
 
 function renderStatusPill(label, type) {
   return `<span class="status-pill ${type}">${esc(label)}</span>`;
+}
+
+function copyFirstToAll(button) {
+  const card = button.closest(".product-card");
+  const rows = card.querySelectorAll(".variants-table tbody tr");
+  if (rows.length < 2) return;
+
+  const firstRow = rows[0];
+  const sourcePrice = firstRow.querySelector(".input-price").value;
+  const sourceCompare = firstRow.querySelector(".input-compare").value;
+
+  for (let i = 1; i < rows.length; i++) {
+    rows[i].querySelector(".input-price").value = sourcePrice;
+    rows[i].querySelector(".input-compare").value = sourceCompare;
+  }
+
+  showToast(`Copied price to ${rows.length - 1} variant${rows.length - 1 !== 1 ? "s" : ""}`, "success");
+}
+
+async function saveAllVariants(button) {
+  const card = button.closest(".product-card");
+  const saveButtons = card.querySelectorAll(".btn-save");
+  if (!saveButtons.length) return;
+
+  button.disabled = true;
+  button.textContent = "Saving...";
+
+  let saved = 0;
+  let failed = 0;
+
+  for (const btn of saveButtons) {
+    if (btn.disabled) continue;
+    try {
+      await saveVariant(btn);
+      saved++;
+    } catch {
+      failed++;
+    }
+  }
+
+  button.disabled = false;
+  button.textContent = "Save All Variants";
+
+  if (failed) {
+    showToast(`${saved} saved, ${failed} failed`, "error");
+  } else {
+    showToast(`All ${saved} variant${saved !== 1 ? "s" : ""} saved`, "success");
+  }
 }
 
 async function saveVariant(button) {
