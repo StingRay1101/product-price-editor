@@ -442,6 +442,11 @@ input::placeholder {
   color: var(--muted-soft);
 }
 
+.cost-price {
+  color: var(--muted);
+  font-style: italic;
+}
+
 .error-state {
   color: var(--danger-text);
 }

@@ -664,6 +664,9 @@ function renderVariants(product, lightspeedProducts, container) {
       const lightspeedPrice = lightspeedMatch
         ? lightspeedMatch.price_including_tax ?? lightspeedMatch.price ?? null
         : null;
+      const lightspeedCost = lightspeedMatch
+        ? lightspeedMatch.supply_price ?? null
+        : null;
       const lightspeedId = lightspeedMatch ? lightspeedMatch.id : "";
       const lightspeedName = lightspeedMatch
         ? lightspeedMatch.variant_name || lightspeedMatch.name || "Linked in Lightspeed"
@@ -679,6 +682,7 @@ function renderVariants(product, lightspeedProducts, container) {
           <td class="current-price">$${esc(variant.price)}</td>
           <td class="current-price">${variant.compare_at_price ? "$" + esc(variant.compare_at_price) : "—"}</td>
           <td class="current-price">${lightspeedPrice !== null ? "$" + esc(String(lightspeedPrice)) : "—"}</td>
+          <td class="current-price cost-price">${lightspeedCost !== null ? "$" + esc(String(lightspeedCost)) : "—"}</td>
           <td><input type="number" step="0.01" min="0" class="input-price" value="${esc(variant.price)}"></td>
           <td><input type="number" step="0.01" min="0" class="input-compare" value="${esc(variant.compare_at_price || "")}" placeholder="Optional"></td>
           <td>
@@ -712,6 +716,7 @@ function renderVariants(product, lightspeedProducts, container) {
             <th>Shopify</th>
             <th>Compare At</th>
             <th>Lightspeed</th>
+            <th>Supplier Cost</th>
             <th>New Price</th>
             <th>New Compare</th>
             <th>Update</th>
