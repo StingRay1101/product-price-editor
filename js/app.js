@@ -215,6 +215,12 @@ async function parseApiResponse(response) {
   try {
     return text ? JSON.parse(text) : {};
   } catch {
+    // If the response looks like HTML, the request probably went to the wrong server
+    if (text.trim().startsWith("<!") || text.trim().startsWith("<html")) {
+      return {
+        error: `Got an HTML page instead of JSON — the Worker URL is probably wrong or the worker has not been deployed yet. Check Connection Settings.`,
+      };
+    }
     return { error: text || `API error ${response.status}` };
   }
 }
