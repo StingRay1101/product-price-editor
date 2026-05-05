@@ -488,7 +488,7 @@ async function handleDebugLightspeed(url, env) {
 // ─── Router ──────────────────────────────────────────────────
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     // CORS preflight
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: CORS });
@@ -508,6 +508,10 @@ export default {
 
     try {
       if (url.pathname === "/api/ping" && request.method === "GET") {
+        // Pre-warm the product cache in the background so the first
+        // search is fast.  ctx.waitUntil keeps the worker alive while
+        // the fetch runs without blocking the ping response.
+        ctx.waitUntil(getShopifyProductsForSearch(env).catch(() => {}));
         return json({ ok: true });
       }
       if (url.pathname === "/api/products" && request.method === "GET") {

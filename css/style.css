@@ -435,6 +435,13 @@ input::placeholder {
   color: rgba(0, 0, 0, 0.48);
 }
 
+.loading-hint {
+  display: inline-block;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--muted-soft);
+}
+
 .error-state {
   color: var(--danger-text);
 }
