@@ -106,7 +106,12 @@ function bindEvents() {
 }
 
 function normalizeWorkerUrl(value) {
-  return (value || "").trim().replace(/\/+$/, "");
+  let url = (value || "").trim().replace(/\/+$/, "");
+  // Auto-add https:// if the user entered a bare domain
+  if (url && !url.startsWith("http://") && !url.startsWith("https://")) {
+    url = "https://" + url;
+  }
+  return url;
 }
 
 function getConfig() {
