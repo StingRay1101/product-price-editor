@@ -418,7 +418,7 @@ async function searchProducts() {
   const query = dom.searchInput.value.trim();
   hideSuggestions();
   dom.productsContainer.innerHTML =
-    '<div class="loading-panel"><div class="loading">Searching products...<br><span class="loading-hint">The first search may take a moment while the product catalogue loads.</span></div></div>';
+    '<div class="loading-panel"><div class="loading">Searching products...</div></div>';
   setSearchStatus(query ? `Searching for "${query}"` : "Searching all products");
 
   try {
