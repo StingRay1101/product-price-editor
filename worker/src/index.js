@@ -180,7 +180,11 @@ async function fetchAllShopifyProducts(env) {
   return products;
 }
 
+const KV_PRODUCT_KEY = "shopify_products_v1";
+const KV_TTL_SECONDS = 300; // 5 minutes
+
 async function getShopifyProductsForSearch(env) {
+  // 1. In-memory cache (fastest — same isolate, no network)
   if (
     Array.isArray(shopifyProductCache.products) &&
     Date.now() < shopifyProductCache.expiresAt
@@ -188,6 +192,21 @@ async function getShopifyProductsForSearch(env) {
     return shopifyProductCache.products;
   }
 
+  // 2. KV cache (fast ~5ms — persists across all isolates and cold starts)
+  if (env.PRODUCT_CACHE) {
+    try {
+      const kvData = await env.PRODUCT_CACHE.get(KV_PRODUCT_KEY, { type: "json" });
+      if (Array.isArray(kvData) && kvData.length > 0) {
+        shopifyProductCache.products = kvData;
+        shopifyProductCache.expiresAt = Date.now() + KV_TTL_SECONDS * 1000;
+        return kvData;
+      }
+    } catch (_) {
+      // KV unavailable — fall through to live fetch
+    }
+  }
+
+  // 3. Deduplicate concurrent in-flight fetches within the same isolate
   if (shopifyProductCache.inFlight) {
     return shopifyProductCache.inFlight;
   }
@@ -196,7 +215,17 @@ async function getShopifyProductsForSearch(env) {
     try {
       const products = await fetchAllShopifyProducts(env);
       shopifyProductCache.products = products;
-      shopifyProductCache.expiresAt = Date.now() + 5 * 60 * 1000;
+      shopifyProductCache.expiresAt = Date.now() + KV_TTL_SECONDS * 1000;
+
+      // Write to KV so every future isolate can skip the slow fetch
+      if (env.PRODUCT_CACHE) {
+        await env.PRODUCT_CACHE.put(
+          KV_PRODUCT_KEY,
+          JSON.stringify(products),
+          { expirationTtl: KV_TTL_SECONDS }
+        );
+      }
+
       return products;
     } catch (err) {
       if (Array.isArray(shopifyProductCache.products)) {
@@ -531,6 +560,13 @@ export default {
       }
       if (url.pathname === "/api/debug-lightspeed" && request.method === "GET") {
         return await handleDebugLightspeed(url, env);
+      }
+      if (url.pathname === "/api/cache-bust" && request.method === "POST") {
+        shopifyProductCache = { products: null, expiresAt: 0, inFlight: null };
+        if (env.PRODUCT_CACHE) {
+          await env.PRODUCT_CACHE.delete(KV_PRODUCT_KEY);
+        }
+        return json({ ok: true, message: "Product cache cleared" });
       }
       return json({ error: "Not found" }, 404);
     } catch (err) {
