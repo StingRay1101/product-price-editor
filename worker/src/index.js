@@ -312,36 +312,21 @@ async function handleSearch(url, env, ctx) {
     250
   );
 
-  // No query — return recent products directly (always fast)
+  // No query — return recent products directly (fast)
   if (!search.trim()) {
     const endpoint = `products.json?limit=${limit}&fields=id,title,handle,variants,images,status`;
     const data = await shopify(env, "GET", endpoint);
-    // Also start warming the cache in the background so searches are fast
+    // Warm the cache in the background for upcoming searches
     if (!shopifyProductCache.products) {
       ctx.waitUntil(getShopifyProductsForSearch(env).catch(() => {}));
     }
     return json(data.products);
   }
 
-  // Cache is warm — use full fuzzy search (instant)
-  const cacheReady =
-    Array.isArray(shopifyProductCache.products) &&
-    Date.now() < shopifyProductCache.expiresAt;
-
-  if (cacheReady) {
-    const matches = searchProductsByQuery(shopifyProductCache.products, search).slice(0, limit);
-    return json(matches);
-  }
-
-  // Cache is cold — kick off full cache build in background, then use
-  // Shopify's own title search for a fast immediate response (~300 ms).
-  ctx.waitUntil(getShopifyProductsForSearch(env).catch(() => {}));
-
-  const fastEndpoint =
-    `products.json?limit=${limit}&title=${encodeURIComponent(search)}` +
-    `&fields=id,title,handle,variants,images,status`;
-  const data = await shopify(env, "GET", fastEndpoint);
-  return json(data.products || []);
+  // Always use the full cached product list for accurate fuzzy matching
+  const products = await getShopifyProductsForSearch(env);
+  const matches = searchProductsByQuery(products, search).slice(0, limit);
+  return json(matches);
 }
 
 async function handleLightspeedLookup(url, env) {
