@@ -475,7 +475,7 @@ async function loadSuggestions(query) {
 
   try {
     const products = await apiFetch(
-      `/api/products?search=${encodeURIComponent(query)}&limit=8`
+      `/api/products?search=${encodeURIComponent(query)}&limit=8&suggest=1`
     );
 
     if (dom.searchInput.value.trim() !== query) {
