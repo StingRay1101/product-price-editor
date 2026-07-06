@@ -33,6 +33,10 @@ const dom = {
   searchBtn: $("#search-btn"),
   searchSuggestions: $("#search-suggestions"),
   productsContainer: $("#products-container"),
+  bulkSection: $("#bulk-section"),
+  bulkFileInput: $("#bulk-file-input"),
+  bulkProcessBtn: $("#bulk-process-btn"),
+  bulkResultsContainer: $("#bulk-results-container"),
   toastContainer: $("#toast-container"),
   searchStatus: $("#search-status"),
   connectionStatus: $("#connection-status"),
@@ -97,6 +101,8 @@ function bindEvents() {
 
   dom.productsContainer.addEventListener("click", onProductsClick);
   dom.searchSuggestions.addEventListener("click", onSuggestionClick);
+  dom.bulkProcessBtn.addEventListener("click", processBulkUploadFile);
+  dom.bulkResultsContainer.addEventListener("click", onBulkResultsClick);
 
   document.addEventListener("click", (event) => {
     if (!event.target.closest(".search-shell")) {
@@ -145,6 +151,7 @@ function refreshShell() {
 
   dom.setupNotice.classList.toggle("hidden", hasWorkerUrl);
   dom.searchSection.classList.toggle("hidden", !hasWorkerUrl || !state.authenticated);
+  dom.bulkSection.classList.toggle("hidden", !hasWorkerUrl || !state.authenticated);
 
   if (!hasWorkerUrl) {
     dom.connectionStatus.textContent = "Connection needed";
@@ -356,6 +363,8 @@ function logout() {
   state.lightspeedCache.clear();
   state.suggestedProducts.clear();
   dom.productsContainer.innerHTML = "";
+  dom.bulkResultsContainer.innerHTML = "";
+  dom.bulkFileInput.value = "";
   dom.loginPassword.value = "";
   dom.settingsPanel.classList.add("hidden");
   hideSuggestions();
@@ -796,6 +805,222 @@ async function saveAllVariants(button) {
   } else {
     showToast(`All ${saved} variant${saved !== 1 ? "s" : ""} saved`, "success");
   }
+}
+
+async function processBulkUploadFile() {
+  const file = dom.bulkFileInput.files[0];
+  if (!file) {
+    showToast("Choose a file first", "error");
+    return;
+  }
+
+  if (typeof XLSX === "undefined") {
+    showToast("Spreadsheet library did not load. Refresh and try again.", "error");
+    return;
+  }
+
+  dom.bulkProcessBtn.disabled = true;
+  dom.bulkProcessBtn.textContent = "Reading...";
+  dom.bulkResultsContainer.innerHTML =
+    '<div class="loading-panel"><div class="loading">Reading spreadsheet...</div></div>';
+
+  try {
+    const items = await readBulkFile(file);
+
+    if (!items.length) {
+      dom.bulkResultsContainer.innerHTML =
+        '<div class="empty-panel"><div class="empty">No SKU/Price rows found in that file.</div></div>';
+      return;
+    }
+
+    dom.bulkResultsContainer.innerHTML =
+      '<div class="loading-panel"><div class="loading">Matching against Shopify...</div></div>';
+
+    const data = await apiFetch("/api/bulk-price-lookup", {
+      method: "POST",
+      body: JSON.stringify({ items }),
+    });
+
+    renderBulkResults(data.results || []);
+  } catch (error) {
+    dom.bulkResultsContainer.innerHTML =
+      `<div class="error-panel"><div class="error-state">${esc(error.message)}</div></div>`;
+  } finally {
+    dom.bulkProcessBtn.disabled = false;
+    dom.bulkProcessBtn.textContent = "Process File";
+  }
+}
+
+function readBulkFile(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Could not read that file."));
+    reader.onload = () => {
+      try {
+        const workbook = XLSX.read(reader.result, { type: "array" });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+        resolve(parseBulkRows(rows));
+      } catch (error) {
+        reject(new Error("Could not read that spreadsheet. Check it is a valid .xlsx file."));
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+function parsePriceCell(value) {
+  if (typeof value === "number") return value;
+  const cleaned = String(value || "").replace(/[^0-9.\-]/g, "");
+  return cleaned === "" ? NaN : Number(cleaned);
+}
+
+function parseBulkRows(rows) {
+  if (!rows.length) return [];
+
+  let startIndex = 0;
+  let skuCol = 0;
+  let priceCol = 1;
+
+  const headerRow = (rows[0] || []).map((cell) => String(cell || "").trim().toLowerCase());
+  const skuHeaderIndex = headerRow.findIndex((cell) => cell === "sku");
+  const priceHeaderIndex = headerRow.findIndex((cell) => cell === "price");
+  if (skuHeaderIndex !== -1 && priceHeaderIndex !== -1) {
+    skuCol = skuHeaderIndex;
+    priceCol = priceHeaderIndex;
+    startIndex = 1;
+  }
+
+  const items = [];
+  for (let i = startIndex; i < rows.length; i++) {
+    const row = rows[i] || [];
+    const sku = String(row[skuCol] || "").trim();
+    if (!sku) continue;
+    const price = parsePriceCell(row[priceCol]);
+    items.push({ sku, price: Number.isFinite(price) ? price : null });
+  }
+
+  return items;
+}
+
+function renderBulkResults(results) {
+  if (!results.length) {
+    dom.bulkResultsContainer.innerHTML =
+      '<div class="empty-panel"><div class="empty">No rows to show.</div></div>';
+    return;
+  }
+
+  const matched = results.filter((result) => result.found).length;
+  const total = results.length;
+
+  const rows = results
+    .map((result) => {
+      const hasValidUpload = result.uploadedPrice !== null && Number.isFinite(Number(result.uploadedPrice));
+      const uploadedPrice = hasValidUpload ? Number(result.uploadedPrice) : null;
+      const currentPrice = result.found ? Number(result.currentPrice) : null;
+      const isMarkdown = result.found && hasValidUpload && currentPrice !== null && uploadedPrice < currentPrice;
+      const needsReview = !result.found || !hasValidUpload || !isMarkdown;
+
+      const newPriceValue = isMarkdown ? uploadedPrice : "";
+      const newCompareValue = isMarkdown ? result.currentPrice : "";
+
+      return `
+        <tr class="${needsReview ? "bulk-row-flagged" : ""}">
+          <td><strong>${esc(result.sku)}</strong></td>
+          <td>${esc(result.productTitle || "No matching product found")}</td>
+          <td class="current-price">${result.found ? "$" + esc(String(result.currentPrice)) : "-"}</td>
+          <td class="current-price">${result.found && result.currentCompareAt ? "$" + esc(String(result.currentCompareAt)) : "-"}</td>
+          <td>${hasValidUpload ? "$" + esc(String(uploadedPrice)) : '<span class="bulk-flag-text">Invalid price</span>'}</td>
+          <td><input type="number" step="0.01" min="0" class="input-price" value="${esc(String(newPriceValue))}" ${result.found ? "" : "disabled"}></td>
+          <td><input type="number" step="0.01" min="0" class="input-compare" value="${esc(String(newCompareValue))}" placeholder="Optional" ${result.found ? "" : "disabled"}></td>
+          <td>
+            ${result.found
+              ? `<button class="btn-save" data-variant-id="${esc(String(result.variantId))}" data-handle="${esc(result.productTitle || result.sku)}" data-ls-id="" type="button">Save</button>`
+              : '<span class="bulk-flag-text">No match</span>'}
+          </td>
+          <td class="status-cell"></td>
+        </tr>`;
+    })
+    .join("");
+
+  dom.bulkResultsContainer.innerHTML = `
+    <div class="product-card">
+      <div class="product-variants">
+        <div class="comparison-summary">
+          <div class="comparison-copy">
+            <h4>Bulk Price Review</h4>
+            <p class="comparison-note">
+              ${matched} of ${total} SKU${total !== 1 ? "s" : ""} matched. Rows in red need the new price
+              (and compare-at, if you want one) entered manually before they can be saved.
+            </p>
+          </div>
+        </div>
+        <div class="bulk-actions">
+          <button class="btn-save-all" type="button" id="bulk-save-all-btn">Save All Ready Rows</button>
+        </div>
+        <div class="table-wrap">
+          <table class="variants-table">
+            <thead>
+              <tr>
+                <th>SKU</th>
+                <th>Product</th>
+                <th>Current Price</th>
+                <th>Current Compare</th>
+                <th>Uploaded Price</th>
+                <th>New Price</th>
+                <th>New Compare</th>
+                <th>Update</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      </div>
+    </div>`;
+}
+
+function onBulkResultsClick(event) {
+  const saveAllBtn = event.target.closest("#bulk-save-all-btn");
+  if (saveAllBtn) {
+    saveAllBulkRows(saveAllBtn);
+    return;
+  }
+
+  const saveButton = event.target.closest(".btn-save");
+  if (saveButton) {
+    saveVariant(saveButton);
+  }
+}
+
+async function saveAllBulkRows(button) {
+  const saveButtons = dom.bulkResultsContainer.querySelectorAll(".btn-save");
+  if (!saveButtons.length) return;
+
+  button.disabled = true;
+  button.textContent = "Saving...";
+
+  let saved = 0;
+  let skipped = 0;
+
+  for (const btn of saveButtons) {
+    if (btn.disabled) continue;
+    const row = btn.closest("tr");
+    const priceValue = row.querySelector(".input-price").value.trim();
+    if (!priceValue) {
+      skipped++;
+      continue;
+    }
+    await saveVariant(btn);
+    saved++;
+  }
+
+  button.disabled = false;
+  button.textContent = "Save All Ready Rows";
+
+  const parts = [`${saved} saved`];
+  if (skipped) parts.push(`${skipped} skipped, no price entered`);
+  showToast(parts.join(", "), "success");
 }
 
 async function saveVariant(button) {
