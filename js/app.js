@@ -230,7 +230,7 @@ async function parseApiResponse(response) {
     // If the response looks like HTML, the request probably went to the wrong server
     if (text.trim().startsWith("<!") || text.trim().startsWith("<html")) {
       return {
-        error: `Got an HTML page instead of JSON — the Worker URL is probably wrong or the worker has not been deployed yet. Check Connection Settings.`,
+        error: `Got an HTML page instead of JSON - the Worker URL is probably wrong or the worker has not been deployed yet. Check Connection Settings.`,
       };
     }
     return { error: text || `API error ${response.status}` };
@@ -699,11 +699,11 @@ function renderVariants(product, lightspeedProducts, container) {
             <strong>${esc(variantLabel)}</strong>
             <span class="variant-secondary">${esc(lightspeedName)}</span>
           </td>
-          <td>${esc(variant.sku || "—")}</td>
+          <td>${esc(variant.sku || "-")}</td>
           <td class="current-price">$${esc(variant.price)}</td>
-          <td class="current-price">${variant.compare_at_price ? "$" + esc(variant.compare_at_price) : "—"}</td>
-          <td class="current-price">${lightspeedPrice !== null ? "$" + esc(String(lightspeedPrice)) : "—"}</td>
-          <td class="current-price cost-price">${lightspeedCost !== null ? "$" + esc(String(lightspeedCost)) : "—"}</td>
+          <td class="current-price">${variant.compare_at_price ? "$" + esc(variant.compare_at_price) : "-"}</td>
+          <td class="current-price">${lightspeedPrice !== null ? "$" + esc(String(lightspeedPrice)) : "-"}</td>
+          <td class="current-price cost-price">${lightspeedCost !== null ? "$" + esc(String(lightspeedCost)) : "-"}</td>
           <td><input type="number" step="0.01" min="0" class="input-price" value="${esc(variant.price)}"></td>
           <td><input type="number" step="0.01" min="0" class="input-compare" value="${esc(variant.compare_at_price || "")}" placeholder="Optional"></td>
           <td>
@@ -1087,8 +1087,8 @@ async function saveVariant(button) {
 
     const currentCells = row.querySelectorAll(".current-price");
     currentCells[0].textContent = `$${price}`;
-    currentCells[1].textContent = compareAtPrice ? `$${compareAtPrice}` : "—";
-    if (result.results.lightspeed?.success) {
+    currentCells[1].textContent = compareAtPrice ? `$${compareAtPrice}` : "-";
+    if (result.results.lightspeed?.success && currentCells[2]) {
       currentCells[2].textContent = `$${price}`;
     }
   } catch (error) {
