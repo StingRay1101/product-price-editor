@@ -841,7 +841,7 @@ async function processBulkUploadFile() {
       body: JSON.stringify({ items }),
     });
 
-    renderBulkResults(data.results || []);
+    renderBulkResults(data.results || [], data.summary || null);
   } catch (error) {
     dom.bulkResultsContainer.innerHTML =
       `<div class="error-panel"><div class="error-state">${esc(error.message)}</div></div>`;
@@ -883,12 +883,15 @@ function parseBulkRows(rows) {
   let priceCol = 1;
 
   const headerRow = (rows[0] || []).map((cell) => String(cell || "").trim().toLowerCase());
-  const skuHeaderIndex = headerRow.findIndex((cell) => cell === "sku");
-  const priceHeaderIndex = headerRow.findIndex((cell) => cell === "price");
-  if (skuHeaderIndex !== -1 && priceHeaderIndex !== -1) {
-    skuCol = skuHeaderIndex;
-    priceCol = priceHeaderIndex;
+  const skuHeaderIndex = headerRow.findIndex((cell) => cell.includes("sku"));
+  const priceHeaderIndex = headerRow.findIndex((cell) => cell.includes("price"));
+  if (skuHeaderIndex !== -1) {
     startIndex = 1;
+    skuCol = skuHeaderIndex;
+    priceCol = priceHeaderIndex !== -1
+      ? priceHeaderIndex
+      : headerRow.findIndex((_, index) => index !== skuHeaderIndex);
+    if (priceCol === -1) priceCol = skuCol === 0 ? 1 : 0;
   }
 
   const items = [];
@@ -903,15 +906,20 @@ function parseBulkRows(rows) {
   return items;
 }
 
-function renderBulkResults(results) {
+function renderBulkResults(results, summary) {
   if (!results.length) {
     dom.bulkResultsContainer.innerHTML =
       '<div class="empty-panel"><div class="empty">No rows to show.</div></div>';
     return;
   }
 
-  const matched = results.filter((result) => result.found).length;
-  const total = results.length;
+  const totalUploaded = summary ? summary.totalUploaded : results.length;
+  const matchedUploaded = summary
+    ? summary.matchedUploaded
+    : results.filter((result) => result.found).length;
+  const fanOutNote = results.length > totalUploaded
+    ? " Some SKUs matched more than one size variant, so they appear as separate rows below."
+    : "";
 
   const rows = results
     .map((result) => {
@@ -950,8 +958,8 @@ function renderBulkResults(results) {
           <div class="comparison-copy">
             <h4>Bulk Price Review</h4>
             <p class="comparison-note">
-              ${matched} of ${total} SKU${total !== 1 ? "s" : ""} matched. Rows in red need the new price
-              (and compare-at, if you want one) entered manually before they can be saved.
+              ${matchedUploaded} of ${totalUploaded} SKU${totalUploaded !== 1 ? "s" : ""} matched. Rows in red need the new price
+              (and compare-at, if you want one) entered manually before they can be saved.${fanOutNote}
             </p>
           </div>
         </div>
