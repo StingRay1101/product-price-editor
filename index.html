@@ -7,7 +7,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Cormorant+Garamond:wght@500;600;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=20260505g">
+  <link rel="stylesheet" href="css/style.css?v=20260706a">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
 <body>
   <div class="login-screen" id="login-screen">
@@ -132,12 +133,29 @@
         </div>
       </section>
 
+      <section id="bulk-section" class="search-section hidden">
+        <div class="search-shell">
+          <label for="bulk-file-input">Bulk Price Update (.xlsx)</label>
+          <div class="search-bar">
+            <input type="file" id="bulk-file-input" accept=".xlsx,.xls">
+            <button id="bulk-process-btn" type="button">Process File</button>
+          </div>
+          <p class="search-note">
+            Needs a SKU column and a Price column, in any order. Rows priced lower than the current
+            Shopify price get the new price and the old price (as compare-at) filled in automatically.
+            Anything else is flagged red and needs the new price entered manually before it can be saved.
+          </p>
+        </div>
+      </section>
+
+      <section id="bulk-results-container" class="results-panel"></section>
+
       <section id="products-container" class="results-panel"></section>
     </main>
   </div>
 
   <div id="toast-container"></div>
 
-  <script src="js/app.js?v=20260505g"></script>
+  <script src="js/app.js?v=20260706a"></script>
 </body>
 </html>
