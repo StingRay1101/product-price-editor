@@ -878,27 +878,34 @@ function parsePriceCell(value) {
 function parseBulkRows(rows) {
   if (!rows.length) return [];
 
-  let startIndex = 0;
-  let skuCol = 0;
-  let priceCol = 1;
+  const maxHeaderScan = Math.min(rows.length, 5);
+  let headerRowIndex = -1;
+  let skuCol = -1;
+  let priceCol = -1;
 
-  const headerRow = (rows[0] || []).map((cell) => String(cell || "").trim().toLowerCase());
-  const skuHeaderIndex = headerRow.findIndex((cell) => cell.includes("sku"));
-  const priceHeaderIndex = headerRow.findIndex((cell) => cell.includes("price"));
-  if (skuHeaderIndex !== -1) {
-    startIndex = 1;
-    skuCol = skuHeaderIndex;
-    priceCol = priceHeaderIndex !== -1
-      ? priceHeaderIndex
-      : headerRow.findIndex((_, index) => index !== skuHeaderIndex);
+  for (let i = 0; i < maxHeaderScan; i++) {
+    const candidate = (rows[i] || []).map((cell) => String(cell || "").trim().toLowerCase());
+    const skuIdx = candidate.findIndex((cell) => cell.includes("sku"));
+    if (skuIdx === -1) continue;
+    headerRowIndex = i;
+    skuCol = skuIdx;
+    const priceIdx = candidate.findIndex((cell) => cell.includes("price"));
+    priceCol = priceIdx !== -1 ? priceIdx : candidate.findIndex((_, index) => index !== skuIdx);
     if (priceCol === -1) priceCol = skuCol === 0 ? 1 : 0;
+    break;
   }
+
+  const startIndex = headerRowIndex !== -1 ? headerRowIndex + 1 : 0;
+  if (skuCol === -1) skuCol = 0;
+  if (priceCol === -1) priceCol = 1;
 
   const items = [];
   for (let i = startIndex; i < rows.length; i++) {
     const row = rows[i] || [];
     const sku = String(row[skuCol] || "").trim();
     if (!sku) continue;
+    // Defensive skip, in case a stray header row still slips through
+    if (sku.toLowerCase() === "sku" || sku.toLowerCase() === "price") continue;
     const price = parsePriceCell(row[priceCol]);
     items.push({ sku, price: Number.isFinite(price) ? price : null });
   }
