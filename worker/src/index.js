@@ -1,5 +1,3 @@
-// ─── Helpers ─────────────────────────────────────────────────
-
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, PUT, OPTIONS",
@@ -14,60 +12,31 @@ function json(data, status = 200) {
 }
 
 function isAuthorizedRequest(request, env) {
-  const bearerToken = (request.headers.get("Authorization") || "").replace(
-    "Bearer ",
-    ""
-  );
+  const bearerToken = (request.headers.get("Authorization") || "").replace("Bearer ", "");
   const portalPassword = request.headers.get("X-Portal-Password") || "";
   const apiKey = env.API_KEY || "";
   const configuredPortalPassword = env.PORTAL_PASSWORD || "";
-
-  if (apiKey && bearerToken === apiKey) {
-    return true;
-  }
-
-  if (configuredPortalPassword && portalPassword === configuredPortalPassword) {
-    return true;
-  }
-
-  // Backward-compatible fallback so existing API_KEY setups can become the page password
-  // before a dedicated PORTAL_PASSWORD secret is added.
-  if (!configuredPortalPassword && apiKey && portalPassword === apiKey) {
-    return true;
-  }
-
+  if (apiKey && bearerToken === apiKey) return true;
+  if (configuredPortalPassword && portalPassword === configuredPortalPassword) return true;
+  if (!configuredPortalPassword && apiKey && portalPassword === apiKey) return true;
   return false;
 }
 
-// Cache token in module scope (persists within same isolate)
 let shopifyTokenCache = { token: null, expiresAt: 0 };
 let shopifyProductCache = { products: null, expiresAt: 0, inFlight: null };
 
 async function getShopifyToken(env) {
-  // Return cached token if still valid (with 5-min buffer)
   if (shopifyTokenCache.token && Date.now() < shopifyTokenCache.expiresAt - 300000) {
     return shopifyTokenCache.token;
   }
-
-  const res = await fetch(
-    `https://${env.SHOPIFY_STORE}/admin/oauth/access_token`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: `grant_type=client_credentials&client_id=${env.SHOPIFY_CLIENT_ID}&client_secret=${env.SHOPIFY_CLIENT_SECRET}`,
-    }
-  );
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Shopify OAuth ${res.status}: ${text}`);
-  }
-
+  const res = await fetch(`https://${env.SHOPIFY_STORE}/admin/oauth/access_token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: `grant_type=client_credentials&client_id=${env.SHOPIFY_CLIENT_ID}&client_secret=${env.SHOPIFY_CLIENT_SECRET}`,
+  });
+  if (!res.ok) { const text = await res.text(); throw new Error(`Shopify OAuth ${res.status}: ${text}`); }
   const data = await res.json();
-  shopifyTokenCache = {
-    token: data.access_token,
-    expiresAt: Date.now() + data.expires_in * 1000,
-  };
+  shopifyTokenCache = { token: data.access_token, expiresAt: Date.now() + data.expires_in * 1000 };
   return data.access_token;
 }
 
@@ -78,322 +47,197 @@ async function shopifyRaw(env, method, endpointOrUrl, body) {
     : `https://${env.SHOPIFY_STORE}/admin/api/2024-10/${endpointOrUrl}`;
   const res = await fetch(url, {
     method,
-    headers: {
-      "Content-Type": "application/json",
-      "X-Shopify-Access-Token": token,
-    },
+    headers: { "Content-Type": "application/json", "X-Shopify-Access-Token": token },
     body: body ? JSON.stringify(body) : undefined,
   });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Shopify ${res.status}: ${text}`);
-  }
+  if (!res.ok) { const text = await res.text(); throw new Error(`Shopify ${res.status}: ${text}`); }
   return res;
 }
 
 async function shopify(env, method, endpoint, body) {
-  const res = await shopifyRaw(env, method, endpoint, body);
-  return res.json();
+  return (await shopifyRaw(env, method, endpoint, body)).json();
 }
 
 async function lightspeed(env, method, endpoint, body) {
   const base = env.LIGHTSPEED_URL.replace(/\/+$/, "");
-  const url = `${base}/api/2.0/${endpoint}`;
-  const res = await fetch(url, {
+  const res = await fetch(`${base}/api/2.0/${endpoint}`, {
     method,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${env.LIGHTSPEED_TOKEN}`,
-    },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${env.LIGHTSPEED_TOKEN}` },
     body: body ? JSON.stringify(body) : undefined,
   });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Lightspeed ${res.status}: ${text}`);
-  }
+  if (!res.ok) { const text = await res.text(); throw new Error(`Lightspeed ${res.status}: ${text}`); }
   return res.json();
 }
 
 async function updateLightspeedProductPrice(env, productId, price) {
   const numericPrice = Number(price);
-  if (!Number.isFinite(numericPrice) || numericPrice < 0) {
-    throw new Error(`Invalid Lightspeed price: ${price}`);
-  }
-
+  if (!Number.isFinite(numericPrice) || numericPrice < 0) throw new Error(`Invalid Lightspeed price: ${price}`);
   const base = env.LIGHTSPEED_URL.replace(/\/+$/, "");
-  const res = await fetch(
-    `${base}/api/2.1/products/${encodeURIComponent(productId)}`,
-    {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${env.LIGHTSPEED_TOKEN}`,
-      },
-      body: JSON.stringify({
-        details: {
-          price_including_tax: numericPrice,
-        },
-      }),
-    }
-  );
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Lightspeed ${res.status}: ${text}`);
-  }
-
+  const res = await fetch(`${base}/api/2.1/products/${encodeURIComponent(productId)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${env.LIGHTSPEED_TOKEN}` },
+    body: JSON.stringify({ details: { price_including_tax: numericPrice } }),
+  });
+  if (!res.ok) { const text = await res.text(); throw new Error(`Lightspeed ${res.status}: ${text}`); }
   return res.json();
 }
 
 function normalizeSearchValue(value) {
-  return String(value || "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
+  return String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
-
-function compactSearchValue(value) {
-  return normalizeSearchValue(value).replace(/\s+/g, "");
-}
-
+function compactSearchValue(value) { return normalizeSearchValue(value).replace(/\s+/g, ""); }
 function getNextPageUrl(linkHeader) {
   if (!linkHeader) return null;
   const match = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
   return match ? match[1] : null;
 }
 
+// Keep only the fields we actually need, this reduces the KV payload size significantly
+function trimProduct(p) {
+  return {
+    id: p.id,
+    title: p.title,
+    handle: p.handle,
+    status: p.status,
+    images: p.images?.length ? [{ src: p.images[0].src }] : [],
+    variants: (p.variants || []).map(v => ({
+      id: v.id,
+      title: v.title,
+      sku: v.sku || "",
+      price: v.price,
+      compare_at_price: v.compare_at_price || null,
+    })),
+  };
+}
+
 async function fetchAllShopifyProducts(env) {
   const products = [];
-  let nextUrl =
-    `https://${env.SHOPIFY_STORE}/admin/api/2024-10/products.json` +
-    `?limit=250&fields=id,title,handle,variants,images,status`;
-
+  let nextUrl = `https://${env.SHOPIFY_STORE}/admin/api/2024-10/products.json?limit=250&fields=id,title,handle,variants,images,status`;
   while (nextUrl) {
     const res = await shopifyRaw(env, "GET", nextUrl);
     const data = await res.json();
-    products.push(...(data.products || []));
+    (data.products || []).forEach(p => products.push(trimProduct(p)));
     nextUrl = getNextPageUrl(res.headers.get("Link"));
   }
-
   return products;
 }
 
 const KV_PRODUCT_KEY = "shopify_products_v1";
-const KV_TTL_SECONDS = 300; // 5 minutes
+const KV_TTL_SECONDS = 1800; // 30 minutes
 
-async function getShopifyProductsForSearch(env) {
-  // 1. In-memory cache (fastest — same isolate, no network)
-  if (
-    Array.isArray(shopifyProductCache.products) &&
-    Date.now() < shopifyProductCache.expiresAt
-  ) {
+function getMemoryCache() {
+  if (Array.isArray(shopifyProductCache.products) && Date.now() < shopifyProductCache.expiresAt) {
     return shopifyProductCache.products;
   }
-
-  // 2. KV cache (fast ~5ms — persists across all isolates and cold starts)
-  if (env.PRODUCT_CACHE) {
-    try {
-      const kvData = await env.PRODUCT_CACHE.get(KV_PRODUCT_KEY, { type: "json" });
-      if (Array.isArray(kvData) && kvData.length > 0) {
-        shopifyProductCache.products = kvData;
-        shopifyProductCache.expiresAt = Date.now() + KV_TTL_SECONDS * 1000;
-        return kvData;
-      }
-    } catch (_) {
-      // KV unavailable — fall through to live fetch
-    }
-  }
-
-  // 3. Deduplicate concurrent in-flight fetches within the same isolate
-  if (shopifyProductCache.inFlight) {
-    return shopifyProductCache.inFlight;
-  }
-
-  shopifyProductCache.inFlight = (async () => {
-    try {
-      const products = await fetchAllShopifyProducts(env);
-      shopifyProductCache.products = products;
-      shopifyProductCache.expiresAt = Date.now() + KV_TTL_SECONDS * 1000;
-
-      // Write to KV so every future isolate can skip the slow fetch
-      if (env.PRODUCT_CACHE) {
-        await env.PRODUCT_CACHE.put(
-          KV_PRODUCT_KEY,
-          JSON.stringify(products),
-          { expirationTtl: KV_TTL_SECONDS }
-        );
-      }
-
-      return products;
-    } catch (err) {
-      if (Array.isArray(shopifyProductCache.products)) {
-        return shopifyProductCache.products;
-      }
-      throw err;
-    } finally {
-      shopifyProductCache.inFlight = null;
-    }
-  })();
-
-  return shopifyProductCache.inFlight;
+  return null;
 }
 
-function scoreProductMatch(product, normalizedQuery, compactQuery, tokens) {
+async function getKVCache(env) {
+  if (!env.PRODUCT_CACHE) return null;
+  try {
+    const data = await env.PRODUCT_CACHE.get(KV_PRODUCT_KEY, { type: "json" });
+    if (Array.isArray(data) && data.length > 0) {
+      shopifyProductCache.products = data;
+      shopifyProductCache.expiresAt = Date.now() + KV_TTL_SECONDS * 1000;
+      return data;
+    }
+  } catch (_) {}
+  return null;
+}
+
+async function buildAndStoreCache(env) {
+  const products = await fetchAllShopifyProducts(env);
+  shopifyProductCache.products = products;
+  shopifyProductCache.expiresAt = Date.now() + KV_TTL_SECONDS * 1000;
+  if (env.PRODUCT_CACHE) {
+    await env.PRODUCT_CACHE.put(KV_PRODUCT_KEY, JSON.stringify(products), { expirationTtl: KV_TTL_SECONDS });
+  }
+  return products;
+}
+
+function scoreProductMatch(product, nq, cq, tokens) {
   const title = normalizeSearchValue(product.title);
   const handle = normalizeSearchValue(product.handle);
-  const variantTitles = (product.variants || []).map((variant) =>
-    normalizeSearchValue(variant.title)
-  );
-  const skus = (product.variants || []).map((variant) =>
-    normalizeSearchValue(variant.sku)
-  );
-  const compactSkus = skus.map((sku) => sku.replace(/\s+/g, ""));
-
+  const vt = (product.variants || []).map(v => normalizeSearchValue(v.title));
+  const skus = (product.variants || []).map(v => normalizeSearchValue(v.sku));
+  const cskus = skus.map(s => s.replace(/\s+/g, ""));
   let score = 0;
-
-  if (title === normalizedQuery) score += 500;
-  if (title.startsWith(normalizedQuery)) score += 260;
-  if (title.includes(normalizedQuery)) score += 180;
-
-  if (handle.startsWith(normalizedQuery)) score += 140;
-  if (handle.includes(normalizedQuery)) score += 100;
-
-  if (compactQuery) {
-    if (compactSkus.some((sku) => sku === compactQuery)) score += 340;
-    if (compactSkus.some((sku) => sku.startsWith(compactQuery))) score += 280;
-    if (compactSkus.some((sku) => sku.includes(compactQuery))) score += 220;
+  if (title === nq) score += 500;
+  if (title.startsWith(nq)) score += 260;
+  if (title.includes(nq)) score += 180;
+  if (handle.startsWith(nq)) score += 140;
+  if (handle.includes(nq)) score += 100;
+  if (cq) {
+    if (cskus.some(s => s === cq)) score += 340;
+    if (cskus.some(s => s.startsWith(cq))) score += 280;
+    if (cskus.some(s => s.includes(cq))) score += 220;
   }
-
-  if (variantTitles.some((variantTitle) => variantTitle.includes(normalizedQuery))) {
-    score += 120;
-  }
-
-  score += tokens.reduce((total, token) => {
-    let tokenScore = 0;
-    if (title.includes(token)) tokenScore += 24;
-    if (handle.includes(token)) tokenScore += 16;
-    if (variantTitles.some((variantTitle) => variantTitle.includes(token))) tokenScore += 12;
-    if (compactSkus.some((sku) => sku.includes(token))) tokenScore += 22;
-    return total + tokenScore;
+  if (vt.some(t => t.includes(nq))) score += 120;
+  score += tokens.reduce((total, t) => {
+    let s = 0;
+    if (title.includes(t)) s += 24;
+    if (handle.includes(t)) s += 16;
+    if (vt.some(v => v.includes(t))) s += 12;
+    if (cskus.some(sk => sk.includes(t))) s += 22;
+    return total + s;
   }, 0);
-
   return score;
 }
 
 function searchProductsByQuery(products, query) {
-  const normalizedQuery = normalizeSearchValue(query);
-  if (!normalizedQuery) return [];
-
-  const compactQuery = compactSearchValue(query);
-  const tokens = normalizedQuery.split(/\s+/).filter(Boolean);
-
-  return products
-    .map((product) => {
-      const title = normalizeSearchValue(product.title);
-      const handle = normalizeSearchValue(product.handle);
-      const variantTitles = (product.variants || []).map((variant) =>
-        normalizeSearchValue(variant.title)
-      );
-      const skus = (product.variants || []).map((variant) =>
-        compactSearchValue(variant.sku)
-      );
-
-      const matchesByPhrase =
-        title.includes(normalizedQuery) ||
-        handle.includes(normalizedQuery) ||
-        variantTitles.some((variantTitle) => variantTitle.includes(normalizedQuery)) ||
-        (compactQuery && skus.some((sku) => sku.includes(compactQuery)));
-
-      const matchesByTokens =
-        tokens.length > 0 &&
-        tokens.every((token) =>
-          title.includes(token) ||
-          handle.includes(token) ||
-          variantTitles.some((variantTitle) => variantTitle.includes(token)) ||
-          skus.some((sku) => sku.includes(token))
-        );
-
-      if (!matchesByPhrase && !matchesByTokens) {
-        return null;
-      }
-
-      return {
-        product,
-        score: scoreProductMatch(product, normalizedQuery, compactQuery, tokens),
-      };
-    })
-    .filter(Boolean)
-    .sort((a, b) => {
-      if (b.score !== a.score) return b.score - a.score;
-      return String(a.product.title || "").localeCompare(String(b.product.title || ""));
-    })
-    .map((entry) => entry.product);
+  const nq = normalizeSearchValue(query);
+  if (!nq) return [];
+  const cq = compactSearchValue(query);
+  const tokens = nq.split(/\s+/).filter(Boolean);
+  return products.map(product => {
+    const title = normalizeSearchValue(product.title);
+    const handle = normalizeSearchValue(product.handle);
+    const vt = (product.variants || []).map(v => normalizeSearchValue(v.title));
+    const skus = (product.variants || []).map(v => compactSearchValue(v.sku));
+    const byPhrase = title.includes(nq) || handle.includes(nq) || vt.some(t => t.includes(nq)) || (cq && skus.some(s => s.includes(cq)));
+    const byTokens = tokens.length > 0 && tokens.every(t => title.includes(t) || handle.includes(t) || vt.some(v => v.includes(t)) || skus.some(s => s.includes(t)));
+    if (!byPhrase && !byTokens) return null;
+    return { product, score: scoreProductMatch(product, nq, cq, tokens) };
+  }).filter(Boolean)
+    .sort((a, b) => b.score !== a.score ? b.score - a.score : String(a.product.title || "").localeCompare(String(b.product.title || "")))
+    .map(e => e.product);
 }
-
-// ─── Handlers ────────────────────────────────────────────────
 
 async function handleSearch(url, env, ctx) {
   const search = url.searchParams.get("search") || "";
-  const limit = Math.min(
-    parseInt(url.searchParams.get("limit") || "50", 10),
-    250
-  );
+  const limit = Math.min(parseInt(url.searchParams.get("limit") || "50", 10), 250);
+  const isSuggestion = url.searchParams.get("suggest") === "1";
 
-  // No query — return recent products directly (fast)
   if (!search.trim()) {
-    const endpoint = `products.json?limit=${limit}&fields=id,title,handle,variants,images,status`;
-    const data = await shopify(env, "GET", endpoint);
-    // Warm the cache in the background for upcoming searches
-    if (!shopifyProductCache.products) {
-      ctx.waitUntil(getShopifyProductsForSearch(env).catch(() => {}));
-    }
-    return json(data.products);
+    const data = await shopify(env, "GET", `products.json?limit=${limit}&fields=id,title,handle,variants,images,status`);
+    return json((data.products || []).map(trimProduct));
   }
 
-  // Always use the full cached product list for accurate fuzzy matching
-  const products = await getShopifyProductsForSearch(env);
-  const matches = searchProductsByQuery(products, search).slice(0, limit);
-  return json(matches);
+  // Always try memory then KV first (instant)
+  const mem = getMemoryCache();
+  if (mem) return json(searchProductsByQuery(mem, search).slice(0, limit));
+  const kv = await getKVCache(env);
+  if (kv) return json(searchProductsByQuery(kv, search).slice(0, limit));
+
+  // Cache cold, so build and store the full catalogue now rather than only
+  // searching the first page. This is a bit slower on the first request,
+  // but every request after this one hits the warm cache instead.
+  const allProducts = await buildAndStoreCache(env);
+  return json(searchProductsByQuery(allProducts, search).slice(0, limit));
 }
 
 async function handleLightspeedLookup(url, env) {
   const shopifyProductId = url.searchParams.get("shopifyProductId");
   const title = url.searchParams.get("title");
   if (!shopifyProductId) return json({ error: "shopifyProductId parameter required" }, 400);
-
   try {
-    // Search Lightspeed using the product title
     const searchTerm = title || shopifyProductId;
-    const search = await lightspeed(
-      env,
-      "GET",
-      `search?type=products&q=${encodeURIComponent(searchTerm)}&page_size=50`
-    );
-    const searchResults = search.data || [];
-
-    // Match by Shopify source_id — this is the reliable link
-    const matches = searchResults.filter(
-      (p) => p.source_id === String(shopifyProductId)
-    );
-
-    if (matches.length > 0) {
-      return json({ found: true, products: matches });
-    }
-
-    // If title search didn't find it, try fetching by source_id directly
-    const directSearch = await lightspeed(
-      env,
-      "GET",
-      `products?source_id=${encodeURIComponent(shopifyProductId)}&page_size=50`
-    );
+    const search = await lightspeed(env, "GET", `search?type=products&q=${encodeURIComponent(searchTerm)}&page_size=50`);
+    const matches = (search.data || []).filter(p => p.source_id === String(shopifyProductId));
+    if (matches.length > 0) return json({ found: true, products: matches });
+    const directSearch = await lightspeed(env, "GET", `products?source_id=${encodeURIComponent(shopifyProductId)}&page_size=50`);
     const directResults = directSearch.data || [];
-
-    if (directResults.length > 0) {
-      return json({ found: true, products: directResults });
-    }
-
+    if (directResults.length > 0) return json({ found: true, products: directResults });
     return json({ found: false, products: [] });
   } catch (err) {
     return json({ found: false, products: [], error: err.message });
@@ -403,174 +247,61 @@ async function handleLightspeedLookup(url, env) {
 async function handleUpdatePrice(request, env) {
   const body = await request.json();
   const { shopifyVariantId, handle, price, compareAtPrice, lightspeedProductId } = body;
-
   const numericPrice = Number(price);
-  if (
-    !shopifyVariantId ||
-    price === undefined ||
-    price === null ||
-    String(price).trim() === "" ||
-    !Number.isFinite(numericPrice) ||
-    numericPrice < 0
-  ) {
+  if (!shopifyVariantId || price === undefined || price === null || String(price).trim() === "" || !Number.isFinite(numericPrice) || numericPrice < 0) {
     return json({ error: "shopifyVariantId and a valid price are required" }, 400);
   }
-
   const results = { shopify: null, lightspeed: null };
   const errors = [];
-
-  // 1. Update Shopify variant price + compare_at_price
   try {
     const data = await shopify(env, "PUT", `variants/${shopifyVariantId}.json`, {
-      variant: {
-        id: Number(shopifyVariantId),
-        price: String(price),
-        compare_at_price: compareAtPrice ? String(compareAtPrice) : null,
-      },
+      variant: { id: Number(shopifyVariantId), price: String(price), compare_at_price: compareAtPrice ? String(compareAtPrice) : null },
     });
     results.shopify = { success: true, variant: data.variant };
-  } catch (err) {
-    errors.push({ platform: "Shopify", error: err.message });
-  }
-
-  // 2. Update Lightspeed product price
+  } catch (err) { errors.push({ platform: "Shopify", error: err.message }); }
   let lsId = lightspeedProductId;
-
-  // Look up by Shopify variant ID if no Lightspeed ID provided
   if (!lsId && shopifyVariantId) {
     try {
-      // Search by product title to find Lightspeed products linked to this Shopify product
-      const searchData = await lightspeed(
-        env,
-        "GET",
-        `search?type=products&q=${encodeURIComponent(handle || shopifyVariantId)}&page_size=50`
-      );
-      const products = searchData.data || [];
-      const match = products.find(
-        (p) => p.source_variant_id === String(shopifyVariantId)
-      );
+      const searchData = await lightspeed(env, "GET", `search?type=products&q=${encodeURIComponent(handle || shopifyVariantId)}&page_size=50`);
+      const match = (searchData.data || []).find(p => p.source_variant_id === String(shopifyVariantId));
       if (match) lsId = match.id;
-    } catch (err) {
-      errors.push({ platform: "Lightspeed", error: `Lookup failed: ${err.message}` });
-    }
+    } catch (err) { errors.push({ platform: "Lightspeed", error: `Lookup failed: ${err.message}` }); }
   }
-
   if (lsId) {
     try {
       const data = await updateLightspeedProductPrice(env, lsId, numericPrice);
       results.lightspeed = { success: true, product: data.data || data.product || data };
-    } catch (err) {
-      errors.push({ platform: "Lightspeed", error: err.message });
-    }
-  } else if (!errors.some((e) => e.platform === "Lightspeed")) {
-    errors.push({
-      platform: "Lightspeed",
-      error: "No matching Lightspeed product found for this variant",
-    });
+    } catch (err) { errors.push({ platform: "Lightspeed", error: err.message }); }
+  } else if (!errors.some(e => e.platform === "Lightspeed")) {
+    errors.push({ platform: "Lightspeed", error: "No matching Lightspeed product found for this variant" });
   }
-
   return json({ results, errors });
 }
 
-// ─── Debug ──────────────────────────────────────────────────
-
-async function handleDebugLightspeed(url, env) {
-  const results = {};
-  const base = env.LIGHTSPEED_URL.replace(/\/+$/, "");
-  const testId = url.searchParams.get("id") || "a1943af6-df6c-442a-ae68-b47a762d4cd2";
-  const headers = {
-    "Content-Type": "application/json",
-    Authorization: `Bearer ${env.LIGHTSPEED_TOKEN}`,
-  };
-  const body = JSON.stringify({ id: testId, retail_price: 129.95 });
-
-  // Try every possible method/path combination
-  const attempts = [
-    { label: "PUT /api/2.0/products/{id}", method: "PUT", path: `/api/2.0/products/${testId}` },
-    { label: "POST /api/2.0/products/{id}", method: "POST", path: `/api/2.0/products/${testId}` },
-    { label: "PATCH /api/2.0/products/{id}", method: "PATCH", path: `/api/2.0/products/${testId}` },
-    { label: "POST /api/2.0/products", method: "POST", path: `/api/2.0/products` },
-    { label: "PUT /api/products", method: "PUT", path: `/api/products` },
-    { label: "POST /api/products", method: "POST", path: `/api/products` },
-    { label: "POST /api/1.0/products", method: "POST", path: `/api/1.0/products` },
-  ];
-
-  results.attempts = [];
-  for (const attempt of attempts) {
-    try {
-      const res = await fetch(`${base}${attempt.path}`, {
-        method: attempt.method,
-        headers,
-        body,
-      });
-      const responseBody = await res.text();
-      results.attempts.push({
-        label: attempt.label,
-        status: res.status,
-        response: responseBody.substring(0, 200),
-      });
-    } catch (err) {
-      results.attempts.push({
-        label: attempt.label,
-        error: err.message,
-      });
-    }
-  }
-
-  return json(results);
-}
-
-// ─── Router ──────────────────────────────────────────────────
-
 export default {
   async fetch(request, env, ctx) {
-    // CORS preflight
-    if (request.method === "OPTIONS") {
-      return new Response(null, { status: 204, headers: CORS });
-    }
-
+    if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
     const url = new URL(request.url);
-
-    // Health check (no auth)
-    if (url.pathname === "/api/health") {
-      return json({ status: "ok" });
-    }
-
-    // Authenticate
-    if (!isAuthorizedRequest(request, env)) {
-      return json({ error: "Unauthorized" }, 401);
-    }
-
+    if (url.pathname === "/api/health") return json({ status: "ok" });
+    if (!isAuthorizedRequest(request, env)) return json({ error: "Unauthorized" }, 401);
     try {
-      if (url.pathname === "/api/ping" && request.method === "GET") {
-        // Pre-warm the product cache in the background so the first
-        // search is fast.  ctx.waitUntil keeps the worker alive while
-        // the fetch runs without blocking the ping response.
-        ctx.waitUntil(getShopifyProductsForSearch(env).catch(() => {}));
-        return json({ ok: true });
-      }
-      if (url.pathname === "/api/products" && request.method === "GET") {
-        return await handleSearch(url, env, ctx);
-      }
-      if (url.pathname === "/api/lightspeed-product" && request.method === "GET") {
-        return await handleLightspeedLookup(url, env);
-      }
-      if (url.pathname === "/api/update-price" && request.method === "POST") {
-        return await handleUpdatePrice(request, env);
-      }
-      if (url.pathname === "/api/debug-lightspeed" && request.method === "GET") {
-        return await handleDebugLightspeed(url, env);
-      }
+      if (url.pathname === "/api/ping" && request.method === "GET") return json({ ok: true });
+      if (url.pathname === "/api/products" && request.method === "GET") return await handleSearch(url, env, ctx);
+      if (url.pathname === "/api/lightspeed-product" && request.method === "GET") return await handleLightspeedLookup(url, env);
+      if (url.pathname === "/api/update-price" && request.method === "POST") return await handleUpdatePrice(request, env);
       if (url.pathname === "/api/cache-bust" && request.method === "POST") {
         shopifyProductCache = { products: null, expiresAt: 0, inFlight: null };
-        if (env.PRODUCT_CACHE) {
-          await env.PRODUCT_CACHE.delete(KV_PRODUCT_KEY);
-        }
-        return json({ ok: true, message: "Product cache cleared" });
+        if (env.PRODUCT_CACHE) await env.PRODUCT_CACHE.delete(KV_PRODUCT_KEY);
+        return json({ ok: true, message: "Cache cleared, it will rebuild on the next search" });
       }
       return json({ error: "Not found" }, 404);
     } catch (err) {
       return json({ error: err.message }, 500);
     }
+  },
+
+  // Cron trigger, runs on a schedule to keep the KV cache fresh
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(buildAndStoreCache(env).catch(err => console.error("Cache build failed:", err.message)));
   },
 };
