@@ -741,6 +741,23 @@ input::placeholder {
   padding: 8px 2px;
 }
 
+.bulk-row-flagged {
+  background: var(--danger-bg);
+}
+
+.bulk-row-flagged .input-price,
+.bulk-row-flagged .input-compare {
+  border-color: rgba(178, 59, 46, 0.4);
+}
+
+.bulk-flag-text {
+  color: var(--danger-text);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
 #toast-container {
   position: fixed;
   bottom: 24px;
