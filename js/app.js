@@ -937,14 +937,11 @@ function renderBulkResults(results, summary) {
     .map((result) => {
       const hasValidUpload = result.uploadedPrice !== null && Number.isFinite(Number(result.uploadedPrice));
       const uploadedPrice = hasValidUpload ? Number(result.uploadedPrice) : null;
-      const currentPrice = result.found ? Number(result.currentPrice) : null;
-      const isMarkdown = result.found && hasValidUpload && currentPrice !== null && uploadedPrice < currentPrice;
-      const needsReview = !result.found || !hasValidUpload || !isMarkdown;
+      const needsReview = !result.found || !hasValidUpload;
 
-      const newPriceValue = isMarkdown ? uploadedPrice : "";
-      const newCompareValue = isMarkdown ? result.currentPrice : "";
+      const newPriceValue = (result.found && hasValidUpload) ? uploadedPrice : "";
       const bulkHasCompare = result.found && result.currentCompareAt && parseFloat(result.currentCompareAt) > 0;
-      const bulkCompareValue = bulkHasCompare ? result.currentCompareAt : newCompareValue;
+      const bulkCompareValue = bulkHasCompare ? result.currentCompareAt : "";
 
       return `
         <tr class="${needsReview ? "bulk-row-flagged" : ""}">
