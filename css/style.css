@@ -447,6 +447,13 @@ input::placeholder {
   font-style: italic;
 }
 
+.input-compare.compare-locked {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: var(--surface);
+  border-color: var(--border);
+}
+
 .error-state {
   color: var(--danger-text);
 }

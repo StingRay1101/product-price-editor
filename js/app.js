@@ -693,6 +693,8 @@ function renderVariants(product, lightspeedProducts, container) {
         ? lightspeedMatch.variant_name || lightspeedMatch.name || "Linked in Lightspeed"
         : "No linked Lightspeed variant";
 
+      const hasCompare = Boolean(variant.compare_at_price) && parseFloat(variant.compare_at_price) > 0;
+
       return `
         <tr data-variant-id="${esc(String(variant.id))}">
           <td class="variant-cell">
@@ -705,7 +707,7 @@ function renderVariants(product, lightspeedProducts, container) {
           <td class="current-price">${lightspeedPrice !== null ? "$" + esc(String(lightspeedPrice)) : "-"}</td>
           <td class="current-price cost-price">${lightspeedCost !== null ? "$" + esc(String(lightspeedCost)) : "-"}</td>
           <td><input type="number" step="0.01" min="0" class="input-price" value="${esc(variant.price)}"></td>
-          <td><input type="number" step="0.01" min="0" class="input-compare" value="${esc(variant.compare_at_price || "")}" placeholder="Optional"></td>
+          <td><input type="number" step="0.01" min="0" class="input-compare${hasCompare ? " compare-locked" : ""}" value="${esc(variant.compare_at_price || "")}" placeholder="${hasCompare ? "" : "Optional"}"${hasCompare ? ` readonly title="Compare price is locked — already set in Shopify"` : ""}></td>
           <td>
             <button
               class="btn-save"
@@ -770,7 +772,10 @@ function copyFirstToAll(button) {
 
   for (let i = 1; i < rows.length; i++) {
     rows[i].querySelector(".input-price").value = sourcePrice;
-    rows[i].querySelector(".input-compare").value = sourceCompare;
+    const compareInput = rows[i].querySelector(".input-compare");
+    if (compareInput && !compareInput.readOnly) {
+      compareInput.value = sourceCompare;
+    }
   }
 
   showToast(`Copied price to ${rows.length - 1} variant${rows.length - 1 !== 1 ? "s" : ""}`, "success");
@@ -938,6 +943,8 @@ function renderBulkResults(results, summary) {
 
       const newPriceValue = isMarkdown ? uploadedPrice : "";
       const newCompareValue = isMarkdown ? result.currentPrice : "";
+      const bulkHasCompare = result.found && result.currentCompareAt && parseFloat(result.currentCompareAt) > 0;
+      const bulkCompareValue = bulkHasCompare ? result.currentCompareAt : newCompareValue;
 
       return `
         <tr class="${needsReview ? "bulk-row-flagged" : ""}">
@@ -947,7 +954,7 @@ function renderBulkResults(results, summary) {
           <td class="current-price">${result.found && result.currentCompareAt ? "$" + esc(String(result.currentCompareAt)) : "-"}</td>
           <td>${hasValidUpload ? "$" + esc(String(uploadedPrice)) : '<span class="bulk-flag-text">Invalid price</span>'}</td>
           <td><input type="number" step="0.01" min="0" class="input-price" value="${esc(String(newPriceValue))}" ${result.found ? "" : "disabled"}></td>
-          <td><input type="number" step="0.01" min="0" class="input-compare" value="${esc(String(newCompareValue))}" placeholder="Optional" ${result.found ? "" : "disabled"}></td>
+          <td><input type="number" step="0.01" min="0" class="input-compare${bulkHasCompare ? " compare-locked" : ""}" value="${esc(String(bulkCompareValue))}" placeholder="${bulkHasCompare ? "" : "Optional"}" ${result.found ? "" : "disabled"}${bulkHasCompare ? ` readonly title="Compare price is locked — already set in Shopify"` : ""}></td>
           <td>
             ${result.found
               ? `<button class="btn-save" data-variant-id="${esc(String(result.variantId))}" data-handle="${esc(result.productTitle || result.sku)}" data-ls-id="" type="button">Save</button>`
