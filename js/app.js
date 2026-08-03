@@ -604,6 +604,12 @@ function onProductsClick(event) {
     return;
   }
 
+  const unlockBtn = event.target.closest(".btn-unlock-compare");
+  if (unlockBtn) {
+    unlockCompare(unlockBtn);
+    return;
+  }
+
   const copyAllBtn = event.target.closest(".btn-copy-all");
   if (copyAllBtn) {
     copyFirstToAll(copyAllBtn);
@@ -707,7 +713,7 @@ function renderVariants(product, lightspeedProducts, container) {
           <td class="current-price">${lightspeedPrice !== null ? "$" + esc(String(lightspeedPrice)) : "-"}</td>
           <td class="current-price cost-price">${lightspeedCost !== null ? "$" + esc(String(lightspeedCost)) : "-"}</td>
           <td><input type="number" step="0.01" min="0" class="input-price" value="${esc(variant.price)}"></td>
-          <td><input type="number" step="0.01" min="0" class="input-compare${hasCompare ? " compare-locked" : ""}" value="${esc(variant.compare_at_price || "")}" placeholder="${hasCompare ? "" : "Optional"}"${hasCompare ? ` readonly title="Compare price is locked — already set in Shopify"` : ""}></td>
+          <td class="compare-cell"><input type="number" step="0.01" min="0" class="input-compare${hasCompare ? " compare-locked" : ""}" value="${esc(variant.compare_at_price || "")}" placeholder="${hasCompare ? "" : "Optional"}"${hasCompare ? ` readonly` : ""}>${hasCompare ? `<button class="btn-unlock-compare" type="button" title="Override compare price">Edit</button>` : ""}</td>
           <td>
             <button
               class="btn-save"
@@ -951,7 +957,7 @@ function renderBulkResults(results, summary) {
           <td class="current-price">${result.found && result.currentCompareAt ? "$" + esc(String(result.currentCompareAt)) : "-"}</td>
           <td>${hasValidUpload ? "$" + esc(String(uploadedPrice)) : '<span class="bulk-flag-text">Invalid price</span>'}</td>
           <td><input type="number" step="0.01" min="0" class="input-price" value="${esc(String(newPriceValue))}" ${result.found ? "" : "disabled"}></td>
-          <td><input type="number" step="0.01" min="0" class="input-compare${bulkHasCompare ? " compare-locked" : ""}" value="${esc(String(bulkCompareValue))}" placeholder="${bulkHasCompare ? "" : "Optional"}" ${result.found ? "" : "disabled"}${bulkHasCompare ? ` readonly title="Compare price is locked — already set in Shopify"` : ""}></td>
+          <td class="compare-cell"><input type="number" step="0.01" min="0" class="input-compare${bulkHasCompare ? " compare-locked" : ""}" value="${esc(String(bulkCompareValue))}" placeholder="${bulkHasCompare ? "" : "Optional"}" ${result.found ? "" : "disabled"}${bulkHasCompare ? ` readonly` : ""}>${bulkHasCompare ? `<button class="btn-unlock-compare" type="button" title="Override compare price">Edit</button>` : ""}</td>
           <td>
             ${result.found
               ? `<button class="btn-save" data-variant-id="${esc(String(result.variantId))}" data-handle="${esc(result.productTitle || result.sku)}" data-ls-id="" type="button">Save</button>`
@@ -999,7 +1005,22 @@ function renderBulkResults(results, summary) {
     </div>`;
 }
 
+function unlockCompare(button) {
+  const input = button.closest("td").querySelector(".input-compare");
+  input.readOnly = false;
+  input.classList.remove("compare-locked");
+  input.focus();
+  input.select();
+  button.remove();
+}
+
 function onBulkResultsClick(event) {
+  const unlockBtn = event.target.closest(".btn-unlock-compare");
+  if (unlockBtn) {
+    unlockCompare(unlockBtn);
+    return;
+  }
+
   const saveAllBtn = event.target.closest("#bulk-save-all-btn");
   if (saveAllBtn) {
     saveAllBulkRows(saveAllBtn);
